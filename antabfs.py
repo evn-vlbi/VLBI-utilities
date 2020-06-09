@@ -3,7 +3,7 @@
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 # Alberto Moreno, Pablo de Vicente (Obs. de Yebes) 2015 - 2016
-# Francisco Javier Beltran (Obs. de Yebes) 2016 - 2017
+# Francisco Javier Beltran (Obs. de Yebes) 2016 - 2019
 #
 # who          when           what
 # --------     ----------     -----------------------------------------------------------------------------------------------------------------------------
@@ -47,6 +47,10 @@
 #
 # beltran      23/04/2019     - Now the program checks the "ifdXX" of each setup in order to know what is the proper IF configuration for each setup.
 #			      - Minor fixes.
+#
+# beltran &    09/06/2020     - Now the program checks the station name from the LOG file and reads only the RXG file corresponding to that station.
+# gonzalez 		      - Added flags ";setup" and "/setup" to get the current setup.
+#			      - Minor fixes.
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -62,6 +66,12 @@ import statsmodels.api as smapi
 from statsmodels.sandbox.regression.predstd import wls_prediction_std
 import itertools
 from time import sleep
+import argparse
+import math
+import struct
+
+station = ""
+
 ###______________________________________________________________###
 class rxgFile: 
 	'''
@@ -396,6 +406,7 @@ class logFile:
 		'''
 
 		self.__rxgDirectory = "/usr2/control/rxg_files"
+		#self.__rxgDirectory = "/usr2/oper/antabfs_pruebas/rxg_files"
 
 		self.logname = fileName.split('/')[-1]
 		exp_station = self.logname.split('.')[0]
@@ -429,7 +440,7 @@ class logFile:
 		self.__dataValid = False
 		self.__dtStartInt = None
 		self.__intComplete = False
-		self.__tempDict = [dict(), dict(), dict()] # tpiprime, tpical and tcal (The latest should always be tcal)-> SINGLE CALIBRATION MODE (Changed if use CONT)
+		self.__tempDict = [dict(), dict(), dict(), dict()] # tpiprime, tpical, tpidiff and tcal (The latest should always be tcal)-> SINGLE CALIBRATION MODE (Changed if use CONT)
 		self.__headerComp = False
 		self.__bbccodelist = dict()
 		self.__bw = dict()
@@ -458,6 +469,8 @@ class logFile:
 				       'astro2': ['1u','2u','3u','4u','9u','au','bu','cu','1l','2l','3l','4l','9l','al','bl','cl'],
 				       'astro3': ['1u','3u','5u','7u','9u','bu','du','fu','1l','3l','5l','7l','9l','bl','dl','fl'],
 				       'lba': ['1u','2u','5u','6u','3u','4u','7u','8u','1l','2l','5l','6l','3l','4l','7l','8l']}
+		
+		self.__epoch = datetime.datetime.utcfromtimestamp(0)
 
 		self.__readLog()
 	#------------------------------------------------------------------------------------
@@ -560,8 +573,10 @@ class logFile:
 				if tsysline_aux and (not all(-1 == tsys for tsys in tsysline_aux)):
 					# Tsys time tag
 					dt = self.__getDatetime(line)
-					days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
-					time.append(days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6)))
+					total_seconds = (dt - self.__epoch).total_seconds()
+					time.append(total_seconds)
+					#days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
+					#time.append(days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6)))
 
 					# Tsys scan tag
 					block.append(self.__scanNum)
@@ -584,7 +599,6 @@ class logFile:
 
 				self.__intComplete = False		
 
-		
 		# When the LOG file has been read, we fill the header using the variables read.
 		self.__fillHeader()
 
@@ -623,6 +637,10 @@ class logFile:
 			polNum = {'L':1, 'R':1}
 			headerStr = "!\n! Setup %s\n! Calibration mode: %s\n!\n" % (setup,self.calModeName[setup])
 			indexStr = "INDEX= "
+			if setup not in self.__bbccodelist:
+				self.__header.append(headerStr[:-1])
+				self.__indexline.append(indexStr + '\n')
+				continue
 			for i in self.__bbccodelist[setup]:
 				lofq = self.freqLOMHzArray[setup][self.__whichif[setup][i]][-1] # Get LO frequency, polarization and bandwidth for every DBBC channel
                 	       	pol = self.polArray[setup][self.__whichif[setup][i]][-1]
@@ -669,6 +687,7 @@ class logFile:
 
 		#----------------Tsys from the LOG file-------------------
 
+		#print self.__tsyslogDict
 		sortedKeys = sorted(self.__tsyslogDict)		# Sort the Tsys read from the LOG file by their time tag
 		
 		for i in sortedKeys:
@@ -709,8 +728,7 @@ class logFile:
                                 if not self.__currentSetup in self.__setupTcal:
                                         self.__setupTcal[self.__currentSetup] = dict()
 					self.__caltempRead[self.__currentSetup] = False
-
-				if len(self.__tempDict) < 4:
+				if len(self.__tempDict) < 5:
 	                                self.__tempDict = [dict()] + self.__tempDict
 
 			if self.dbbcModeName == "PFB":								# If the DBBC uses PFB mode:
@@ -781,7 +799,7 @@ class logFile:
 					bbcFreq = self.__bbcfq[self.__currentSetup][i]
 
 				fchan=lofq+bbcFreq-bw_aux/2.
-				tcal=get_tcal(lofq,pol,fchan)
+				tcal=get_tcal(lofq,pol,fchan, self.station().lower())
 
 				if not self.__caltempRead[self.__currentSetup]:
 					self.__tempDict[-1][i] = [tcal]				
@@ -912,14 +930,14 @@ class logFile:
                         dt = self.__getDatetime(line)					# This line is usually the next line to a scan name line.
                         days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
                         sourceName = line.split('=')[1].split(',')[0]
-                        strLine=('\n! %02d %02d:%05.2f: scanNum=%04d scanName=%s source=%s'%(days,dt.hour,dt.minute + (dt.second/60.) + (dt.microsecond/(60.*float(1e6))),self.__scanNum, self.__scanName,sourceName))
+                        strLine=('\n! %03d %02d:%05.2f: scanNum=%04d scanName=%s source=%s'%(days,dt.hour,dt.minute + (dt.second/60.) + (dt.microsecond/(60.*float(1e6))),self.__scanNum, self.__scanName,sourceName))
                         self.__scanline.append(strLine)
                         return True
 
 		#-----------------------Current Setup-------------------------
 
-		if self.__idLine(line, [':setup']):
-			self.__currentSetup = line.split('p')[1].strip()
+		if self.__idLine(line, [':setup',';setup','/setup']):
+			self.__currentSetup = line.split('p')[-1].strip()
 
 			if not self.__currentSetup in self.__setupTcal:
 				self.__setupTcal[self.__currentSetup] = dict()
@@ -927,8 +945,9 @@ class logFile:
 
 			if self.__currentSetup != self.__lastSetup:
 				dt = self.__getDatetime(line)
-				days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
-				time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
+				time_aux =  (dt - self.__epoch).total_seconds()
+				#days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
+				#time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
                                 self.__setupTime.append([time_aux,self.__currentSetup])
 				self.__lastSetup = self.__currentSetup
 				self.__newSetup = True
@@ -968,9 +987,9 @@ class logFile:
 			if self.calModeName[self.__currentSetup] != self.lastCalMode:
 				self.lastCalMode = self.calModeName[self.__currentSetup]	
 				if self.calModeName[self.__currentSetup] == 'SINGLE':
-					self.__tempDict = [dict(),dict(),dict(),dict()]
+					self.__tempDict = [dict(),dict(),dict(),dict(), dict()]
 				elif self.calModeName[self.__currentSetup] == 'CONT':
-					self.__tempDict = [dict(),dict(),dict()]
+					self.__tempDict = [dict(),dict(),dict(), dict()]
 
 			return True
 
@@ -1034,19 +1053,21 @@ class logFile:
 		if self.__currentSetup in self.calModeName: 
 
 	                if self.calModeName[self.__currentSetup] == "SINGLE":		# If the DBBC uses SINGLE calibration mode, 
-	                        auxReference = ['/tpi/', '/tpical', '/caltemp/']	# check the LOG file line to look for tpiprime, tpical and caltemp temperature variables.
+	                        auxReference = ['/tpi/', '/tpical', '/tpdiff/', '/caltemp/']	# check the LOG file line to look for tpiprime, tpical and caltemp temperature variables.
 	                        tempInd = self.__idLine(line,auxReference)       
 
 	                        if tempInd != 0:					# If any temperature variable was found, store it in its dictionary.
-	                	        tempInd += 1					# If SINGLE calibration mode was identified, increase temperature index in one.  
+		                	tempInd += 1					# If SINGLE calibration mode was identified, increase temperature index in one.  
 	                	        self.__getTempLine(line, tempInd)		# At the beginning     -> tempDict: [tpiprime, tpical, caltemp]
 	                                return True					# SINGLE cal detected  -> tempDict: [tpicd, tpiprime, tpical, caltemp]
 
 	                        elif self.__idLine(line, ['/tsys/']):			# If no temperature variable was found, check the LOG file line to look for Tsys printed inside the LOG file.
 											# 	"/tsys/1l,130.8,1u,130.8,3l,130.8,3u,131.0,ia,145.5"
 					dt = self.__getDatetime(line)			#       time_aux: Time tag of the checked line
-					days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
-					time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
+					time_aux =  (dt - self.__epoch).total_seconds()
+					
+					#days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
+					#time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
 					auxStr = line.split('/')[-1].split(',')
 
 					if not time_aux in self.__tsyslogDict:
@@ -1081,8 +1102,9 @@ class logFile:
 											# If the DBBC uses CONTINUOUS calibration mode, check the LOG file line to look for Tsys printed inside the LOG file.
 				elif self.__idLine(line, ['#tpicd#tsys/']):		# 	"#tpicd#tsys/1l,46.3,1u,49.5"
 					dt = self.__getDatetime(line)			#	time_aux: Time tag of the checked line  
-	                                days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
-	                                time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
+					time_aux =  (dt - self.__epoch).total_seconds()
+	                                #days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
+	                                #time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
 	                                auxStr = line.split('/')[-1].split(',')
 					
 					if not time_aux in self.__tsyslogDict:
@@ -1095,7 +1117,7 @@ class logFile:
 	                                        if (auxStr[i] in auxDict):
 		                                        dictExist = True
 	                                        for element in self.__chId:
-		                                        if element==auxStr[i][self.__chIdIndex]:
+							if element==auxStr[i][self.__chIdIndex]:
 		                                                if dictExist:
 		                                                        try:
 		                                                                auxDict[auxStr[i]].append(float(auxStr[i+1]))
@@ -1142,7 +1164,6 @@ class logFile:
 				temp.append(-1)                                 
                                 continue
 
- 
                 	tcal = self.__tempDict[-1][i][0]			# Get Tcal from temperature dictionary. This dictionary was filled with Tcal from RXG files or LOG file.
 			if tcal == 0:						
 				temp.append(-1)					# If Tcal is 0, Tsys cannot be calculated.
@@ -1178,6 +1199,7 @@ class logFile:
 				tpiprimeList = []
 				tpicalList = []
 				vsysList = []
+				tpidiffList = []
 
 				try:
 					if self.__tempDict[1]:
@@ -1186,23 +1208,40 @@ class logFile:
 		                                tpicalList = self.__tempDict[2][i]
 					if self.__tempDict[0]:
 						vsysList = self.__tempDict[0][i]
+					if self.__tempDict[3]:
+						tpidiffList = self.__tempDict[3][i]
 						
 				except Exception, e:							# Tsys cannot be calculated if there is any exception getting temperature variables
 					temp.append(-1)					# from temperature dictionaries for a certain DBBC channel.
 					continue				
+				if len(tpidiffList) != 0:
+					if len(vsysList) == 0:
+						#continue
+						vsys = sum(tpiprimeList)/len(tpiprimeList)
+					else:
+						vsys = sum(vsysList)/len(vsysList)
+					tpidiff = sum(tpidiffList)/len(tpidiffList)
+					if tpidiff <= 0:
+						tsys=-1
+					else:
+						tsys=tcal*(vsys-tpzero)/tpidiff
 
-                                if len(vsysList) == 0 or len(tpiprimeList) == 0 or len(tpicalList) == 0:	# If any temperature list is empty, Tsys cannot be calculated.
-                                        continue					
+				else:
+	                                if len(tpiprimeList) == 0 or len(tpicalList) == 0:	# If any temperature list is empty, Tsys cannot be calculated.
+	                                        continue					
 
-	                        tpiprime = sum(tpiprimeList)/len(tpiprimeList)		# Get the mean value of each temperature variable.
-                                tpical = sum(tpicalList)/len(tpicalList)
-				vsys = sum(vsysList)/len(vsysList)
-
-                                if tpical<=tpiprime:					# If tpiprime is greater than tpical, Tsys cannot be calculated.
-                                	tsys=-1
-					#print "tpiprime: %f; tpical: %f" % (tpiprime,tpical) 
-                                else:
-                                	tsys=tcal*(vsys-tpzero)/(tpical-tpiprime)
+					
+		                        tpiprime = sum(tpiprimeList)/len(tpiprimeList)		# Get the mean value of each temperature variable.
+	                                tpical = sum(tpicalList)/len(tpicalList)
+					if len(vsysList) == 0:
+						vsys = sum(tpiprimeList)/len(tpiprimeList)
+					else:
+						vsys = sum(vsysList)/len(vsysList)
+	                                if tpical<=tpiprime:					# If tpiprime is greater than tpical, Tsys cannot be calculated.
+	                                	tsys=-1
+						#print "tpiprime: %f; tpical: %f" % (tpiprime,tpical) 
+	                                else:
+	                                	tsys=tcal*(vsys-tpzero)/(tpical-tpiprime)
 
 			temp.append(tsys)
 
@@ -1469,6 +1508,9 @@ class logFile:
 
 		for fileN in os.listdir(self.__rxgDirectory):
 			if fileN.endswith(".rxg") and not foundFile:
+				stName = fileN[5:7].lower()
+				if stName != self.stationName.lower():
+					continue
 				fileName = "%s/%s" % (self.__rxgDirectory, fileN)
 				rxgF = rxgFile(fileName)
 				try:
@@ -1522,6 +1564,7 @@ class antabHeader:
                 self.expName = self.logF.experiment()
                 self.stationName = self.logF.station()
                 self.rxgDirectory = "/usr2/control/rxg_files"
+		#self.rxgDirectory = "/usr2/oper/antabfs_pruebas/rxg_files"
 
 	def rxgLines(self):
 		'''Creates a line with information from the RXG file. This line will be included in the antab header
@@ -1534,6 +1577,7 @@ class antabHeader:
 			i = 0
 			for fLO in fLOArray[setup]:
 				rxgFileName = self.logF.getRXGFileName(fLO)
+				print rxgFileName
 				rxgF = rxgFile(rxgFileName)
 
 				linerxg.append(	"%.2f MHz %s: %s %s" % (fLO, polArray[setup][i], rxgF.name(), rxgF.date()) )
@@ -1709,7 +1753,7 @@ class antabHeader:
 		line.append('! DBBC used in mode %s' % dbbcMode)
 		#line.append('! Calibration mode: %s' % calMode)
 
-		version = "2019-04-24"
+		version = "2019-10-11"
 
 		line.append('! Produced on %s using antabfs.py version: %s' % (todayDate, version))
 
@@ -1763,6 +1807,7 @@ class antabHeader:
 class Selection(object):	#clase para la selección manual de los datos
 
 	def __init__(self,x,y,block,title):
+
 		sec_loc = mdates.SecondLocator()
 		self.x=np.array(x);self.y=np.array(y);self.block=block;self.title=title
 		self.xrectangle=[];self.yrectangle=[]
@@ -1823,7 +1868,7 @@ class Selection(object):	#clase para la selección manual de los datos
 			text = item.get_text()
 			if text != '':
 				text = text.replace(u'\u2212','')
-				value = (int(text)/(24.*60.)) + self.timeInit
+				value = (int(float(text))/(24.*60.)) + self.timeInit
 				day = int(value)
 				hour = int((value - day)*24)
 				minute = (value - day - (hour/24.))*24*60
@@ -2003,8 +2048,9 @@ def outliers(block,x,y,tolerance):
 	outy=np.extract(outcond,y)
 	return fit,low,up,inx,iny,outx,outy
 #-----------------------------------------------------------------------------------------------------
-def get_tcal(lofq,pol,freq):
+def get_tcal(lofq,pol,freq,station):
 	caldir='/usr2/control/rxg_files/'
+	#caldir='/usr2/oper/antabfs_pruebas/rxg_files/'
 	rxglist=[]
 	lall=os.listdir(caldir)
 	for i in lall:
@@ -2013,28 +2059,32 @@ def get_tcal(lofq,pol,freq):
 	fileok=False
 	tcal=0
 	for filename in rxglist:
-		f=open(filename).read().splitlines()
-		for i in range(0,len(f)):
-			if f[i][0:5]=='range':
-				rmin=float(f[i].split()[1]);rmax=float(f[i].split()[2])
-				if rmin<=lofq<=rmax:
-					fileok=True
-				else:
-					break
-			elif f[i][0:5]=='fixed':
-				rmin=float(f[i].split()[1])-10;rmax=float(f[i].split()[1])+10
-				if rmin<=lofq<=rmax:
-					fileok=True
-				else:
-					break
-			if fileok and f[i][0:3]==pol and f[i+1][0:3]==pol:
-				f1=float(f[i].split()[1]);f2=float(f[i+1].split()[1])
-				if f1<=freq<=f2:
-					t1=float(f[i].split()[2]);t2=float(f[i+1].split()[2])
-					tcal=t1+(freq-f1)*(t2-t1)/(f2-f1)
-					break
-		if tcal!=0:
-			break
+		rxgfilename = filename.split('/')[-1]
+		stationfilename = rxgfilename[5:7].lower()
+		if station == stationfilename:
+			f=open(filename).read().splitlines()
+			for i in range(0,len(f)):
+				if f[i][0:5]=='range':
+					rmin=float(f[i].split()[1]);rmax=float(f[i].split()[2])
+					if rmin<=lofq<=rmax:
+						fileok=True
+					else:
+						break
+				elif f[i][0:5]=='fixed':
+					rmin=float(f[i].split()[1])-10;rmax=float(f[i].split()[1])+10
+					if rmin<=lofq<=rmax:
+						fileok=True
+					else:
+						break
+				if fileok and i < len(f)-1:
+					if f[i][0:3]==pol and f[i+1][0:3]==pol:
+						f1=float(f[i].split()[1]);f2=float(f[i+1].split()[1])
+						if f1<=freq<=f2:
+							t1=float(f[i].split()[2]);t2=float(f[i+1].split()[2])
+							tcal=t1+(freq-f1)*(t2-t1)/(f2-f1)
+							break
+			if tcal!=0:
+				break
 	if fileok==False:
 		print "tcal = %g" % tcal
 		#sys.exit('A suitable rxg_file was not found')
@@ -2068,8 +2118,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 
 	tsyslogNLine = 0
 	setupTime_ind = 0
-	if tsyslogNLine < len(tsyslog):
-		time_tsyslog = tsyslog[tsyslogNLine][0]
+	time_tsyslog = tsyslog[0][0]
 	for i in range(0,len(block)):
 		if setupTime_ind < len(setupTime):
 			setup = setupTime[setupTime_ind][1]
@@ -2087,7 +2136,6 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 				for line in header[setupTime_ind]:
 					f.write(line)
 				setupTime_ind += 1
-
 		if i == 0:
 			for j in scanline:
 				strAux = j.split('=')[1].split(' ')[0]
@@ -2095,10 +2143,12 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 					dayAux = j.split(": scanNum")[0].split(" ")
 					scanTime = int(dayAux[1]) + (int(dayAux[2].split(":")[0])/24.) + (float(dayAux[2].split(":")[1])/(24.*60.))
 					if tsyslogNLine < len(tsyslog):
-						while time_tsyslog <= scanTime:
-							d=int(time_tsyslog)
-	                				h=int((time_tsyslog-d)*24)
-	                				m=(time_tsyslog-(d + (h/24.)))*(60*24)
+						dt = datetime.datetime.fromtimestamp(time_tsyslog)
+						d=dt.timetuple().tm_yday
+						h=dt.hour
+						m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
+						dtTsysLog = d+h/24.+m/(24.*60.)
+						while dtTsysLog <= scanTime:
 							strLine = '\n! %03d %02d:%05.2f'%(d,h,m)
 							for j_tsys in range(1,len(tsyslog[tsyslogNLine])):
 								try:
@@ -2109,30 +2159,59 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 							tsyslogNLine += 1
 							if tsyslogNLine < len(tsyslog):
 			        				time_tsyslog = tsyslog[tsyslogNLine][0]
+								dt = datetime.datetime.fromtimestamp(time_tsyslog)
+								d=dt.timetuple().tm_yday
+								h=dt.hour
+								m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
+								dtTsysLog = d+h/24.+m/(24.*60.)
 							else:
 								break
 							f.write(strLine)
-														
+								
 					f.write(j)
 					break
 		else:
 			if block[i]!=block[i-1]:
 				for j in scanline:
 					strAux = j.split('=')[1].split(' ')[0]
-					#finded=j.find('no%04i'%block[i])
-					#if finded!=-1:
 					if int(strAux) == block[i]:
+						dayAux = j.split(": scanNum")[0].split(" ")
+						scanTime = int(dayAux[1]) + (int(dayAux[2].split(":")[0])/24.) + (float(dayAux[2].split(":")[1])/(24.*60.))
+						if tsyslogNLine < len(tsyslog):
+							dt = datetime.datetime.fromtimestamp(time_tsyslog)
+							d=dt.timetuple().tm_yday
+							h=dt.hour
+							m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
+							dtTsysLog = d+h/24.+m/(24.*60.)
+							while dtTsysLog <= scanTime:
+								strLine = '\n! %03d %02d:%05.2f'%(d,h,m)
+								for j_tsys in range(1,len(tsyslog[tsyslogNLine])):
+									try:
+										int(tsysline[i][j_tsys-1])
+									except:
+										continue
+									strLine=strLine+' %.1f' % tsyslog[tsyslogNLine][j_tsys]
+								tsyslogNLine += 1
+								if tsyslogNLine < len(tsyslog):
+									time_tsyslog = tsyslog[tsyslogNLine][0]
+									dt = datetime.datetime.fromtimestamp(time_tsyslog)
+									d=dt.timetuple().tm_yday
+									h=dt.hour
+									m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
+									dtTsysLog = d+h/24.+m/(24.*60.)
+								else:
+									break
+								f.write(strLine)
+									
 						f.write(j)
 						break
 
 		if tsyslogNLine < len(tsyslog):
 			while time_tsyslog <= time[i]:
-				d=int(time_tsyslog)
-	                	h=int((time_tsyslog-d)*24)
-	                	m=(time_tsyslog-(d + (h/24.)))*(60*24)
-	                	#m=int((time_tsyslog-(d + (h/24.)))*(60*24))
-	                	#s=int((time_tsyslog-(d + (h/24.) + (m/(60.*24.))))*(3600*24))
-	                	#us=int((time_tsyslog-(d + (h/24.) + (m/(60.*24.)) + (s/(3600.*24.)))) * (3600*24*1e2))
+				dt = datetime.datetime.fromtimestamp(time_tsyslog)
+				d=dt.timetuple().tm_yday
+	                	h=dt.hour
+	                	m=dt.minute + dt.second/60.0 + dt.microsecond/(1e6*60.0)
 				strLine = '\n! %03d %02d:%05.2f'%(d,h,m)
 				for j in range(1,len(tsyslog[tsyslogNLine])):
 					try:
@@ -2147,14 +2226,19 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 					break
 				f.write(strLine)
 
-		d=int(time[i])
-		h=int((time[i]-d)*24)
-		m=(time[i]-(d + (h/24.)))*(60*24)
+		dt = datetime.datetime.fromtimestamp(time[i])
+		d=dt.timetuple().tm_yday
+	        h=dt.hour
+	        m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
+		#h_float, d= math.modf(time[i])
+		#h_float *= 24.0
+		#m, h = math.modf(h_float)
+		#m *= 60.
 		#m=int((time[i]-(d + (h/24.)))*(60*24))
 		#s=int((time[i]-(d + (h/24.) + (m/(60.*24.))))*(3600*24))
 		#us=int((time[i]-(d + (h/24.) + (m/(60.*24.)) + (s/(3600.*24.)))) * (3600*24*1e2))
-		
-		strline='\n%03d %02d:%05.2f'%(d,h,m)
+	
+		strline='\n%03.0f %02.0f:%05.2f'%(d,h,m)
 		for j in tsysline[i]:
 			try:
 				int(j)
@@ -2196,6 +2280,14 @@ def prefilter(tsysline,block,maxlim):
 def main(args):
 	#read data
 
+	helpStr = ""
+
+	#parser = argparse.ArgumentParser(description='.')
+	#args_parsed = parser.parse_args(args)
+
+	#return
+
+	#debug = True
 	debug = False
 
 	if len(args) != 2:
@@ -2206,6 +2298,9 @@ def main(args):
 		if '/' in str(args[1]):
 			pass
 		else:
+			logFileName = str(args[1])
+			global station
+			station = logFileName[-6:-4]
 			logFileName = "/usr2/log/%s" % (str(args[1]))		
 
 	antabFile = os.path.dirname(os.path.abspath(__file__)) + ('/%s.antabfs' % (logFileName.split('/')[-1].split('.')[0]))
@@ -2219,7 +2314,7 @@ def main(args):
 	timewrite_aux = []
 	blockwrite_aux = []
 	maxlim=10000
-	
+
 	logData = logF.getLogData()
 	header = logData[0] 
 	indexline = logData[1]
@@ -2253,6 +2348,14 @@ def main(args):
 		tsysline_aux = tsysline[startInd:endInd]
 		block_aux = block[startInd:endInd]
 		time_aux = time[startInd:endInd]
+		x = []
+		for time_ind in range(len(time_aux)):
+			x_val = time_aux[time_ind]
+			dt = datetime.datetime.fromtimestamp(x_val)
+			days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
+			t = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
+			x.append(t)
+
 
 		tptsys=np.matrix.transpose(np.array(tsysline_aux))
 		tptsys=prefilter(tptsys,block_aux,maxlim)	#filter negative values
@@ -2265,7 +2368,7 @@ def main(args):
 			#if len(fully) != len(time_aux):
 			#	continue
 			if not debug:
-				results=Selection(time_aux,fully,block_aux,bbclist[i])
+				results=Selection(x,fully,block_aux,bbclist[i])
 				delIndX = results.getDeletedX()
 				delIndX.reverse()
 
