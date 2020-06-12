@@ -69,8 +69,14 @@ from time import sleep
 import argparse
 import math
 import struct
+import pydoc
 
 station = ""
+rxgfiles = ""
+
+version=20200609
+
+debug = False
 
 ###______________________________________________________________###
 class rxgFile: 
@@ -1503,13 +1509,24 @@ class logFile:
 		@return RXG file name
 		'''
 
+		global rxgfiles
 		foundFile = False
 		fileRXG = " "
 
-		for fileN in os.listdir(self.__rxgDirectory):
+		if rxgfiles:
+			ficherosRXG = rxgfiles	
+		else:
+			ficherosRXG = os.listdir(self.__rxgDirectory)
+
+		for fileN in ficherosRXG:
 			if fileN.endswith(".rxg") and not foundFile:
-				stName = fileN[5:7].lower()
-				if stName != self.stationName.lower():
+				#stName = fileN[5:7].lower()
+				#if stName != self.stationName.lower():
+				#	continue
+				
+				# If the rxgfile are provided no need to check the name
+				stcode = self.stationName[0].upper()+self.stationName[1].lower()
+				if stcode not in fileN and not rxgfiles:
 					continue
 				fileName = "%s/%s" % (self.__rxgDirectory, fileN)
 				rxgF = rxgFile(fileName)
@@ -1534,9 +1551,7 @@ class logFile:
 					print "Error getting LO freq"
 					raise ex
 				del rxgF
-	
 		return fileRXG
-
 ###______________________________________________________________###
 class antabHeader:
 
@@ -2051,29 +2066,43 @@ def outliers(block,x,y,tolerance):
 def get_tcal(lofq,pol,freq,station):
 	caldir='/usr2/control/rxg_files/'
 	#caldir='/usr2/oper/antabfs_pruebas/rxg_files/'
-	rxglist=[]
-	lall=os.listdir(caldir)
-	for i in lall:
-		if i[-4:]=='.rxg':
-			rxglist.append(caldir+i)									#obtain .rxg format files
+	# If rxgfiles are provided check them, otherwhise look into cal dir
+	global rxgfiles
+
+	if rxgfiles:
+		rxglist = [caldir+i for i in rxgfiles]
+	else:
+		rxglist=[]
+		lall=os.listdir(caldir)
+		for i in lall:
+			if i[-4:]=='.rxg':
+				rxglist.append(caldir+i)									#obtain .rxg format files
+	
 	fileok=False
 	tcal=0
 	for filename in rxglist:
 		rxgfilename = filename.split('/')[-1]
-		stationfilename = rxgfilename[5:7].lower()
-		if station == stationfilename:
+		#stationfilename = rxgfilename[3:5].lower()
+		# Station code checkout is not necessary if user provides RXG files
+		stcode = station[0].upper()+station[1]
+		if stcode in filename or rxgfiles:
+		#if station == stationfilename or forzado:
 			f=open(filename).read().splitlines()
 			for i in range(0,len(f)):
 				if f[i][0:5]=='range':
 					rmin=float(f[i].split()[1]);rmax=float(f[i].split()[2])
 					if rmin<=lofq<=rmax:
 						fileok=True
+						if debug:
+							print "Using %s RXG file" % filename
 					else:
 						break
 				elif f[i][0:5]=='fixed':
 					rmin=float(f[i].split()[1])-10;rmax=float(f[i].split()[1])+10
 					if rmin<=lofq<=rmax:
 						fileok=True
+						if debug:
+							print "Using %s RXG file" % filename
 					else:
 						break
 				if fileok and i < len(f)-1:
@@ -2287,21 +2316,16 @@ def main(args):
 
 	#return
 
-	#debug = True
-	debug = False
 
-	if len(args) != 2:
-		print "Usage: %s logFile" % (args[0])
-		sys.exit(0)
+	logFileName = str(args[-1])
+	if '/' in str(args[-1]):
+		pass
 	else:
-		logFileName = str(args[1])
-		if '/' in str(args[1]):
-			pass
-		else:
-			logFileName = str(args[1])
-			global station
-			station = logFileName[-6:-4]
-			logFileName = "/usr2/log/%s" % (str(args[1]))		
+		logFileName = str(args[-1])
+		print logFileName
+		global station
+		station = logFileName[-6:-4]
+		logFileName = "/usr2/log/%s" % (str(args[-1]))		
 
 	antabFile = os.path.dirname(os.path.abspath(__file__)) + ('/%s.antabfs' % (logFileName.split('/')[-1].split('.')[0]))
 
@@ -2435,6 +2459,35 @@ def main(args):
 	else:
 		print 'Results not saved'
 #-----------------------------------------------------------------------------------------------------
+def usage():
+    pydoc.pager(
+"""
+Usage: {progname} [-f rxgfile_list] logfile
+
+Script to generate ANTAB files for its use with AIPS.
+Version: {date_version}
+
+Options:
+	-f : Allows the user to specify rxgfile_list, a list of RXG files comma separated.
+
+
+All RXG files are supposed to be under /usr2/control/rxg_files/. If the -f option is not given, the script
+will search there for a valid RXG file. Valid files are those which define a frequency range that contains 
+the observed setup in the log file AND match the station code in the log file name. To do so it must be
+named with the station code as Sc, e.g.:
+calYsQ.rxg
+""".format(progname=sys.argv[0],date_version=version))
+
+#-----------------------------------------------------------------------------------------------------
 #-----------------------------------------------------------------------------------------------------
 if __name__=='__main__':
-	main(sys.argv)
+	if len(sys.argv)==1 or '-h' in sys.argv:
+	        usage()
+        	sys.exit( 0 )
+	elif len(sys.argv) == 2:
+		main(sys.argv)
+	elif len(sys.argv) == 4 and '-f' in sys.argv:
+		rxg = sys.argv[2]
+		rxgfiles = rxg.split(',')
+		print rxgfiles
+		main(sys.argv)
