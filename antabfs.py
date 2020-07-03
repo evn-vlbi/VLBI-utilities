@@ -883,7 +883,7 @@ class logFile:
                	elif idIndex == 2:
 			if not self.__currentSetup == None:
 				if self.__dataValid:
-		                       	self.__intComplete = True
+		                	self.__intComplete = True
 	                       	self.__dataValid = False
 
 			return True
@@ -1222,8 +1222,8 @@ class logFile:
 					continue				
 				if len(tpidiffList) != 0:
 					if len(vsysList) == 0:
-						#continue
-						vsys = sum(tpiprimeList)/len(tpiprimeList)
+						continue
+						#vsys = sum(tpiprimeList)/len(tpiprimeList)
 					else:
 						vsys = sum(vsysList)/len(vsysList)
 					tpidiff = sum(tpidiffList)/len(tpidiffList)
@@ -1240,7 +1240,8 @@ class logFile:
 		                        tpiprime = sum(tpiprimeList)/len(tpiprimeList)		# Get the mean value of each temperature variable.
 	                                tpical = sum(tpicalList)/len(tpicalList)
 					if len(vsysList) == 0:
-						vsys = sum(tpiprimeList)/len(tpiprimeList)
+						continue
+						#vsys = sum(tpiprimeList)/len(tpiprimeList)
 					else:
 						vsys = sum(vsysList)/len(vsysList)
 	                                if tpical<=tpiprime:					# If tpiprime is greater than tpical, Tsys cannot be calculated.
