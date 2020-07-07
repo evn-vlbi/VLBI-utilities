@@ -1222,6 +1222,7 @@ class logFile:
 					continue				
 				if len(tpidiffList) != 0:
 					if len(vsysList) == 0:
+						temp.append(-1)
 						continue
 						#vsys = sum(tpiprimeList)/len(tpiprimeList)
 					else:
@@ -1234,12 +1235,14 @@ class logFile:
 
 				else:
 	                                if len(tpiprimeList) == 0 or len(tpicalList) == 0:	# If any temperature list is empty, Tsys cannot be calculated.
+						temp.append(-1)
 	                                        continue					
 
 					
 		                        tpiprime = sum(tpiprimeList)/len(tpiprimeList)		# Get the mean value of each temperature variable.
 	                                tpical = sum(tpicalList)/len(tpicalList)
 					if len(vsysList) == 0:
+						temp.append(-1)
 						continue
 						#vsys = sum(tpiprimeList)/len(tpiprimeList)
 					else:
@@ -2276,6 +2279,21 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 				continue
 			strline=strline+' %.1f'%j
 		f.write(strline)
+
+	while tsyslogNLine < len(tsyslog):
+		dt = datetime.datetime.fromtimestamp(time_tsyslog)
+		d=dt.timetuple().tm_yday
+		h=dt.hour
+		m=dt.minute + dt.second/60.0 + dt.microsecond/(1e6*60.0)
+		strLine = '\n! %03d %02d:%05.2f'%(d,h,m)
+		for j in range(1,len(tsyslog[tsyslogNLine])):
+			strLine=strLine+' %.1f' % tsyslog[tsyslogNLine][j]
+		tsyslogNLine += 1
+		if tsyslogNLine < len(tsyslog):
+			time_tsyslog = tsyslog[tsyslogNLine][0]
+		else:
+			break
+		f.write(strLine)
 
 	f.write('\n/\n')
 	f.close()
