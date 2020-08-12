@@ -51,6 +51,7 @@
 # beltran &    09/06/2020     - Now the program checks the station name from the LOG file and reads only the RXG file corresponding to that station.
 # gonzalez 		      - Added flags ";setup" and "/setup" to get the current setup.
 #			      - Minor fixes.
+# gonzalez     11/08/2020     - Changed datetime.fromtimestamp() to datetime.utcfromtimestamp() to keep UTC independently of user's timezone.
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -74,7 +75,7 @@ import pydoc
 station = ""
 rxgfiles = ""
 
-version=20200609
+version=20200811
 
 debug = False
 
@@ -2176,7 +2177,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 					dayAux = j.split(": scanNum")[0].split(" ")
 					scanTime = int(dayAux[1]) + (int(dayAux[2].split(":")[0])/24.) + (float(dayAux[2].split(":")[1])/(24.*60.))
 					if tsyslogNLine < len(tsyslog):
-						dt = datetime.datetime.fromtimestamp(time_tsyslog)
+						dt = datetime.datetime.utcfromtimestamp(time_tsyslog)
 						d=dt.timetuple().tm_yday
 						h=dt.hour
 						m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
@@ -2192,7 +2193,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 							tsyslogNLine += 1
 							if tsyslogNLine < len(tsyslog):
 			        				time_tsyslog = tsyslog[tsyslogNLine][0]
-								dt = datetime.datetime.fromtimestamp(time_tsyslog)
+								dt = datetime.datetime.utcfromtimestamp(time_tsyslog)
 								d=dt.timetuple().tm_yday
 								h=dt.hour
 								m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
@@ -2211,7 +2212,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 						dayAux = j.split(": scanNum")[0].split(" ")
 						scanTime = int(dayAux[1]) + (int(dayAux[2].split(":")[0])/24.) + (float(dayAux[2].split(":")[1])/(24.*60.))
 						if tsyslogNLine < len(tsyslog):
-							dt = datetime.datetime.fromtimestamp(time_tsyslog)
+							dt = datetime.datetime.utcfromtimestamp(time_tsyslog)
 							d=dt.timetuple().tm_yday
 							h=dt.hour
 							m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
@@ -2227,7 +2228,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 								tsyslogNLine += 1
 								if tsyslogNLine < len(tsyslog):
 									time_tsyslog = tsyslog[tsyslogNLine][0]
-									dt = datetime.datetime.fromtimestamp(time_tsyslog)
+									dt = datetime.datetime.utcfromtimestamp(time_tsyslog)
 									d=dt.timetuple().tm_yday
 									h=dt.hour
 									m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
@@ -2241,7 +2242,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 
 		if tsyslogNLine < len(tsyslog):
 			while time_tsyslog <= time[i]:
-				dt = datetime.datetime.fromtimestamp(time_tsyslog)
+				dt = datetime.datetime.utcfromtimestamp(time_tsyslog)
 				d=dt.timetuple().tm_yday
 	                	h=dt.hour
 	                	m=dt.minute + dt.second/60.0 + dt.microsecond/(1e6*60.0)
@@ -2259,7 +2260,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 					break
 				f.write(strLine)
 
-		dt = datetime.datetime.fromtimestamp(time[i])
+		dt = datetime.datetime.utcfromtimestamp(time[i])
 		d=dt.timetuple().tm_yday
 	        h=dt.hour
 	        m=dt.minute + (dt.second/60.0) + dt.microsecond/(1e6*60.0)
@@ -2281,7 +2282,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 		f.write(strline)
 
 	while tsyslogNLine < len(tsyslog):
-		dt = datetime.datetime.fromtimestamp(time_tsyslog)
+		dt = datetime.datetime.utcfromtimestamp(time_tsyslog)
 		d=dt.timetuple().tm_yday
 		h=dt.hour
 		m=dt.minute + dt.second/60.0 + dt.microsecond/(1e6*60.0)
@@ -2394,7 +2395,7 @@ def main(args):
 		x = []
 		for time_ind in range(len(time_aux)):
 			x_val = time_aux[time_ind]
-			dt = datetime.datetime.fromtimestamp(x_val)
+			dt = datetime.datetime.utcfromtimestamp(x_val)
 			days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
 			t = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
 			x.append(t)
@@ -2426,7 +2427,15 @@ def main(args):
 
 		if not debug:
 			if time_aux and alltsys_aux:
-				finalplot(time_aux,alltsys_aux,bbclist, bP)
+				x = []
+		                for time_ind in range(len(time_aux)):
+					x_val = time_aux[time_ind]
+					dt = datetime.datetime.utcfromtimestamp(x_val)
+					days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
+					t = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
+					x.append(t)
+
+				finalplot(x,alltsys_aux,bbclist, bP)
 
 		tsyswrite_aux.append(np.matrix.transpose(np.array(alltsys_aux)))
 		timewrite_aux.append(time_aux)
