@@ -52,6 +52,7 @@
 # gonzalez 		      - Added flags ";setup" and "/setup" to get the current setup.
 #			      - Minor fixes.
 # gonzalez     11/08/2020     - Changed datetime.fromtimestamp() to datetime.utcfromtimestamp() to keep UTC independently of user's timezone.
+# marcote      14/09/2020     - Removes a trailing comma in poly avoiding the case of e.g. POLY=1.0, /
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -1699,6 +1700,8 @@ class antabHeader:
 					else:
 						strLine = "%s,%s" % (strLine,element)
 					i = i + 1
+                                if strLine.strip()[-1] == ',':
+                                    strLine = strLine.strip()[:-1]
 				strLine += ' /\n'
 				polyLineArray[setup].append(strLine)
 	
