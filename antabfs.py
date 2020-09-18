@@ -1700,8 +1700,8 @@ class antabHeader:
 					else:
 						strLine = "%s,%s" % (strLine,element)
 					i = i + 1
-                                if strLine.strip()[-1] == ',':
-                                    strLine = strLine.strip()[:-1]
+				if strLine.strip()[-1] == ',':
+					strLine = strLine.strip()[:-1]
 				strLine += ' /\n'
 				polyLineArray[setup].append(strLine)
 	
