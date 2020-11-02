@@ -13,6 +13,8 @@ the observed setup in the log file AND match the station code in the log file na
 named with the station code as Sc, e.g.:
 calYsQ.rxg
 
+Once the ANTAB files are generated at the station, please upload them to the `vlbeer.ira.inaf.it` ftp server. Place the files inside the `vlbi_arch/mmmYY/` folder, where `mmmYY` is the *date of the observation* (e.g. `mar20` if the experiment was observed in March 2020).
+
 
 Checking if schedules at the station are updated. The script logs in vlbeer and checks the VEX files at the station against the version in the FTP site and shows the results. If the file is outdated it warns the user. Usage:
 
