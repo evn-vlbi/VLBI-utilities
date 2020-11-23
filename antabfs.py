@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 #-*- coding: utf-8 -*-
 
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -53,6 +53,7 @@
 #			      - Minor fixes.
 # gonzalez     11/08/2020     - Changed datetime.fromtimestamp() to datetime.utcfromtimestamp() to keep UTC independently of user's timezone.
 # marcote      14/09/2020     - Removes a trailing comma in poly avoiding the case of e.g. POLY=1.0, /
+# gonzalez     23/11/2020     - Added "form=wastro" support. Thanks to Jun Yang (Onsala) for reporting.
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -76,7 +77,7 @@ import pydoc
 station = ""
 rxgfiles = ""
 
-version=20200811
+version=20201123
 
 debug = False
 
@@ -476,7 +477,8 @@ class logFile:
 				       'astro': ['1u','2u','3u','4u','5u','6u','7u','8u','1l','2l','3l','4l','5l','6l','7l','8l'],
 				       'astro2': ['1u','2u','3u','4u','9u','au','bu','cu','1l','2l','3l','4l','9l','al','bl','cl'],
 				       'astro3': ['1u','3u','5u','7u','9u','bu','du','fu','1l','3l','5l','7l','9l','bl','dl','fl'],
-				       'lba': ['1u','2u','5u','6u','3u','4u','7u','8u','1l','2l','5l','6l','3l','4l','7l','8l']}
+				       'lba': ['1u','2u','5u','6u','3u','4u','7u','8u','1l','2l','5l','6l','3l','4l','7l','8l'],
+				       'wastro': ['1u','2u','3u','4u','5u','6u','7u','8u','1l','2l','3l','4l','5l','6l','7l','8l','9u','au','bu','cu','du','eu','fu','gu','9l','al','bl','cl','dl','el','fl','gl']}
 		
 		self.__epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -663,7 +665,12 @@ class logFile:
 						bbcFreq = self.__bbcfq[setup][i]
                 	        	fchan=lofq+bbcFreq+bw_aux/2.
                 	                auxStr = '0%s' % i[0]
-                	                bbcnum = int(auxStr,16)			# DBBC channel number (from 1 to 16)
+        				# Manage special case of channel 16 with hex code 'g'
+	        	                if auxStr == '0g':
+						bbcnum = 16
+					else:
+						bbcnum = int(auxStr,16)			# DBBC channel number (from 1 to 16)
+					
 					sbLetter = i[-1].upper() 		# Sideband Letter (L or U)
 
 				elif self.dbbcModeName == "PFB":			# When DBBC uses PFB mode only use LSB.
@@ -757,7 +764,7 @@ class logFile:
 				for i in range(0,len(self.__bbcinfo[self.__currentSetup])):
 					aux = int(bbcinfo_aux[i][0][-2:])
 					if (self.__currentSetup in self.__fila10gMode) and (self.__formType in self.__formChannels):
-						bbcNumIndex = [a for a in range(len(self.__formChannels[self.__formType])) if ('%x' % aux) in self.__formChannels[self.__formType][a]]
+						bbcNumIndex = [a for a in range(len(self.__formChannels[self.__formType])) if (('%x' % aux) in self.__formChannels[self.__formType][a]) or ((aux == 16) and ('g' in self.__formChannels[self.__formType][a]))]
 						for index in bbcNumIndex:
 							aux_code = 2**(index*2) + 2**(index*2+1)
 							if aux_code & self.__fila10gMode[self.__currentSetup]:
@@ -791,7 +798,6 @@ class logFile:
 						self.__bbccodelist[self.__currentSetup].append(bbcucode)					
 
 			self.__bbccodelist[self.__currentSetup].sort()
-
 			#if self.calModeName[self.__currentSetup] == 'CONT':				# If the DBBC uses CONTINUOUS calibration mode:
 
 			for i in self.__bbccodelist[self.__currentSetup]:			#	Tcal of every DBBC channel should be got from RXG files
@@ -978,7 +984,12 @@ class logFile:
 			
 		#------------------------Fila10G Mode-------------------------
 		if self.__idLine(line, ['/fila10g_mode=']):
-			self.__fila10gMode[self.__currentSetup] = int(line.split(',')[1],16)
+			tmpLine = line.split('=')[1]
+			mask1 = tmpLine.split(',')[0].strip('0x')
+			mask2 = tmpLine.split(',')[1].strip('0x')
+			mask = ''.join(['0x',mask2,mask1])
+			#self.__fila10gMode[self.__currentSetup] = int(line.split(',')[1],16)
+			self.__fila10gMode[self.__currentSetup] = int(mask,16)
 		elif self.__idLine(line, ['_mode=']):
 			self.__recMode[self.__currentSetup] = int(line.split(',')[1],16)
 
