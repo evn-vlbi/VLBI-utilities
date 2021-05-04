@@ -54,6 +54,7 @@
 # gonzalez     11/08/2020     - Changed datetime.fromtimestamp() to datetime.utcfromtimestamp() to keep UTC independently of user's timezone.
 # marcote      14/09/2020     - Removes a trailing comma in poly avoiding the case of e.g. POLY=1.0, /
 # gonzalez     23/11/2020     - Added "form=wastro" support. Thanks to Jun Yang (Onsala) for reporting.
+# gonzalez     04/05/2021     - Fix Fila10g VSI masks extraction to correctly handle masks ending with 0.
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -77,7 +78,7 @@ import pydoc
 station = ""
 rxgfiles = ""
 
-version=20201123
+version=20210504
 
 debug = False
 
@@ -985,8 +986,9 @@ class logFile:
 		#------------------------Fila10G Mode-------------------------
 		if self.__idLine(line, ['/fila10g_mode=']):
 			tmpLine = line.split('=')[1]
-			mask1 = tmpLine.split(',')[0].strip('0x')
-			mask2 = tmpLine.split(',')[1].strip('0x')
+			# remove starting 0x prefix
+			mask1 = tmpLine.split(',')[0][2:]
+			mask2 = tmpLine.split(',')[1][2:]
 			mask = ''.join(['0x',mask2,mask1])
 			#self.__fila10gMode[self.__currentSetup] = int(line.split(',')[1],16)
 			self.__fila10gMode[self.__currentSetup] = int(mask,16)
