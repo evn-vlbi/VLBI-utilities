@@ -548,9 +548,11 @@ class logFile:
 			if self.__intComplete:
 
 				if not self.__currentSetup in self.__bbccodelist:
-					continue
-
+				    continue
+                                # if we can't decode time stamp, it is invalid line
 				dt = self.__getDatetime(line)
+                                if not dt:
+	                                continue
 
 				tsysline_aux = self.__getTsys(self.__bbccodelist[self.__currentSetup], dt)
 	
@@ -584,6 +586,9 @@ class logFile:
 				if tsysline_aux and (not all(-1 == tsys for tsys in tsysline_aux)):
 					# Tsys time tag
 					dt = self.__getDatetime(line)
+					# If we cannot get the timestamp, skip line
+					if not dt:
+						continue
 					total_seconds = (dt - self.__epoch).total_seconds()
 					time.append(total_seconds)
 					#days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
@@ -847,24 +852,27 @@ class logFile:
 
 		tempInd = self.__idLine(line,tempReference)
 
-		if not self.__headerComp and not self.__currentSetup in self.calModeName:		# If the calibration mode has been identified:
-			self.__setParams()								#	Call self.__setParams() method to prepare the variables used to store temperature information
-			self.__headerComp = True							# 	Set self.__headerComp to True, indicating that header reading has finished
-		
-		dt = self.__getDatetime(line)
-		if nextLine == "":
-			dt_nextLine = dt + datetime.timedelta(0,0,0,200)
+		if tempInd == 0:
+			pass
 		else:
-			dt_nextLine = self.__getDatetime(nextLine)
 
-		if (dt-self.__dtStartInt)>= self.__intTime and (dt_nextLine-dt)>datetime.timedelta(0,0,0,100): # Compare the checked line date and the next line date. If the integration time
-			self.__intComplete = True				  # has been exceeded, set self.__intComplete to True and store the date when the integration
-			self.__dtStartInt = dt					  # finished.
+			if not self.__headerComp and not self.__currentSetup in self.calModeName:		# If the calibration mode has been identified:
+				self.__setParams()								#	Call self.__setParams() method to prepare the variables used to store temperature information
+				self.__headerComp = True							# 	Set self.__headerComp to True, indicating that header reading has finished
+			
+			dt = self.__getDatetime(line)
+			if nextLine == "":
+				dt_nextLine = dt + datetime.timedelta(0,0,0,200)
+			else:
+				dt_nextLine = self.__getDatetime(nextLine)
+			if (dt-self.__dtStartInt)>= self.__intTime and (dt_nextLine-dt)>datetime.timedelta(0,0,0,100): # Compare the checked line date and the next line date. If the integration time
+				self.__intComplete = True				  # has been exceeded, set self.__intComplete to True and store the date when the integration
+				self.__dtStartInt = dt					  # finished.
 
-		if tempInd == 0:						  # Only store temperature information if tempInd == 0, because it means that a reference string 
-			pass							  # was found in the checked line.
-		else:
-			self.__getTempLine(line, tempInd)
+			if tempInd == 0:						  # Only store temperature information if tempInd == 0, because it means that a reference string 
+				pass							  # was found in the checked line.
+			else:
+				self.__getTempLine(line, tempInd)
 
 	#------------------------------------------------------------------------------------
 	def __checkDataValid(self, line):
@@ -1408,17 +1416,21 @@ class logFile:
 		"""
 		Return the date of the LOG file line as python datetime.datetime
 		"""
-		auxDate = line.split('.')
-                auxTime = auxDate[2].split(':')
-		usec = int(int(auxDate[3][:2]) * 1e4)
+		try:
+			auxDate = line.split('.')
+			auxTime = auxDate[2].split(':')
+			usec = int(int(auxDate[3][:2]) * 1e4)
 
-                year=int(auxDate[0])
-                day=int(auxDate[1])
-                hour=int(auxTime[0])
-                minu=int(auxTime[1])
-                sec=int(auxTime[2])
+			year=int(auxDate[0])
+			day=int(auxDate[1])
+			hour=int(auxTime[0])
+			minu=int(auxTime[1])
+			sec=int(auxTime[2])
 
-		dt = datetime.datetime(year,1,1,hour,minu,sec,usec) + datetime.timedelta(day-1)
+			dt = datetime.datetime(year,1,1,hour,minu,sec,usec) + datetime.timedelta(day-1)
+                except:
+			print(line)
+                        dt = False
 		return dt
 
 	#------------------------------------------------------------------------------------
