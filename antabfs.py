@@ -55,6 +55,7 @@
 # marcote      14/09/2020     - Removes a trailing comma in poly avoiding the case of e.g. POLY=1.0, /
 # gonzalez     23/11/2020     - Added "form=wastro" support. Thanks to Jun Yang (Onsala) for reporting.
 # gonzalez     04/05/2021     - Fix Fila10g VSI masks extraction to correctly handle masks ending with 0.
+# marcote      12/06/2024     - Fix version of antabfs.py printed in antabfs files.
 #----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -78,7 +79,7 @@ import pydoc
 station = ""
 rxgfiles = ""
 
-version=20210504
+version=20240512
 
 debug = False
 
@@ -1801,9 +1802,7 @@ class antabHeader:
 		line.append('! DBBC used in mode %s' % dbbcMode)
 		#line.append('! Calibration mode: %s' % calMode)
 
-		version = "2019-10-11"
-
-		line.append('! Produced on %s using antabfs.py version: %s' % (todayDate, version))
+		line.append('! Produced on %s using antabfs.py version: %s' % (todayDate, datetime.datetime.strptime(str(version), "%Y%m%d").strftime("%Y-%m-%d"))
 
 		return line
 
