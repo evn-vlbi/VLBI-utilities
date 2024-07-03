@@ -7,7 +7,7 @@
 #
 # who          when           what
 # --------     ----------     -----------------------------------------------------------------------------------------------------------------------------
-# beltran      24/04/2017     - Cal. Temp. is read from RXG files by default. 
+# beltran      24/04/2017     - Cal. Temp. is read from RXG files by default.
 #			        If "/caltemp/" lines appear in LOG file, the program reads them and overwrites the last Cal. Temp values.
 #
 # beltran      02/05/2017     - Minimum and maximum frequencies for each setup are calculated as [min(bbcFreq) - bbcBw] and [max(bbcFreq) + bbcBw] respectively.
@@ -25,7 +25,7 @@
 #			      - Minor fixes.
 #
 # beltran      28/06/2017     - Repeated BBCs are removed from self.__bbcinfo.
-#				Example: Before -> [['bbc01', '637.49', 'a', '16.00\n'], ['bbc01', '637.49', 'a', '16.00\n'], ['bbc03', '669.49', 'a', '16.00\n'], ['bbc03', '669.49', 'a', '16.00\n'] 
+#				Example: Before -> [['bbc01', '637.49', 'a', '16.00\n'], ['bbc01', '637.49', 'a', '16.00\n'], ['bbc03', '669.49', 'a', '16.00\n'], ['bbc03', '669.49', 'a', '16.00\n']
 #					 After  -> [['bbc01', '637.49', 'a', '16.00\n'], ['bbc03', '669.49', 'a', '16.00\n']]
 #
 # beltran      16/10/2017     - X axis shows date and time in the following format: "%d %02d:%05.2f" % (day,hour,minute) -> Example: "100 09:01.03", "200 18:30.10"
@@ -84,9 +84,9 @@ version=20240512
 debug = False
 
 ###______________________________________________________________###
-class rxgFile: 
+class rxgFile:
 	'''
-	Information about the content of the RXG file. 
+	Information about the content of the RXG file.
 	Class to extract and manage the infromation from the RXG file.
 	'''
 	#-----------------------------------------------------------------------------------------------------
@@ -113,18 +113,18 @@ class rxgFile:
 			self.fileContent = rxgfIn.readlines()
 			rxgfIn.close()
 		except Exception, ex:
-			raise 
+			raise
 
 	# --------------------------------------------------------------------------------------------
 	def getLineFromParamName(self, param, star):
 		'''
 		Get the parameter we want from the RXG file. It is based in the name of the parameter
-		and not in the number of line as the FS usually works. 
+		and not in the number of line as the FS usually works.
 		Lines starting with * are considered comments
 		@param param Parameter we are looking for
-		@star If the param value is in that same line or in another one. 
+		@star If the param value is in that same line or in another one.
 			True means the parameter is in a line without star that comes later
-			False means the parameter is in that same line. 
+			False means the parameter is in that same line.
 
 		Usage example: self.getLineFromParamName('DPFU', True)
 		'''
@@ -153,18 +153,18 @@ class rxgFile:
 						break
 				else:
 					pass
-	
+
 		return lineWithParam
 
 	# --------------------------------------------------------------------------------------------
 	def getLineFromParam(self, parameter):
 		'''
-		Get the parameter we want from the RXG file. We know which line to read from the RXG file 
+		Get the parameter we want from the RXG file. We know which line to read from the RXG file
 		assuming there is correspondence between the line number and the parameter
 		Lines starting with * are skipped during the count since they are considered comments
 		TCAL and SPILL are special cases because they have ain unknown number of lines in their section.
 		Eevery time we read line from TCAL we have to play with the counter. See the code below.
-		
+
 		@param param Parameter we are looking for.
 
 		Usage example: self.getLineFromParam('DPFU')
@@ -214,11 +214,11 @@ class rxgFile:
 					if lineNumber == 7:
 						line7 = True
 						lineParamArray.append( line )
-						i = i - 1	
+						i = i - 1
 					elif lineNumber == 9:
 						line9 = True
 						lineParamArray.append( line )
-						i = i - 1	
+						i = i - 1
 					else:
 						lineParamArray.append( line )
 						break
@@ -262,7 +262,7 @@ class rxgFile:
 		return dpfuList
 	# --------------------------------------------------------------------------------------------
 	def gain(self):
-		'''Returns a list with the GAIN. 
+		'''Returns a list with the GAIN.
 		'''
 
 		gainLine = self.getLineFromParam('GAIN')[0]
@@ -272,7 +272,7 @@ class rxgFile:
 
 	# --------------------------------------------------------------------------------------------
 	def lo(self):
-		'''Returns a list with the local oscillators. 
+		'''Returns a list with the local oscillators.
 		The file can have this line:
 				range 4000 4300
 		or this one:
@@ -299,7 +299,7 @@ class rxgFile:
 	# --------------------------------------------------------------------------------------------
 	def trec(self):
 		'''Returns the line with the Receiver temperature. It may contain one or two values
-		Line looks like: 
+		Line looks like:
 			8.0 8.0
 		'''
 
@@ -310,7 +310,7 @@ class rxgFile:
 
 	# --------------------------------------------------------------------------------------------
 	def tcal(self):
-		'''Returns an array with the tcal lines 
+		'''Returns an array with the tcal lines
 		Lines look like this:
 			lcp 4650.0 1.5
 			lcp 4700.0 1.0
@@ -361,7 +361,7 @@ class rxgFile:
 
 	# --------------------------------------------------------------------------------------------
 	def freqMinMax(self):
-		'''Returns the maximum and minimum frequency covered by TCal array in the RXG file. Units: the same 
+		'''Returns the maximum and minimum frequency covered by TCal array in the RXG file. Units: the same
 		as in the RXG file
 		'''
 
@@ -397,8 +397,8 @@ class rxgFile:
 				while i < len(flA):
 					fcArray.append([flA[i], tlA[i]])
 					i = i + 1
-			
-		return fcArray	
+
+		return fcArray
 
 ###______________________________________________________________###
 class logFile:
@@ -428,7 +428,7 @@ class logFile:
 			self.fileContent = logfIn.readlines()
 			logfIn.close()
 		except Exception, ex:
-			raise 
+			raise
 
 		self.freqLOMHzArray = dict()
 		self.ifdSetup = dict()
@@ -436,7 +436,7 @@ class logFile:
 		self.bandArray = dict()
 		self.dbbcModeName = None
 		#self.calModeName = None
-		self.calModeName = dict() 
+		self.calModeName = dict()
 		self.lastCalMode = None
 		self.logData = []
 
@@ -465,7 +465,7 @@ class logFile:
 		self.__indexline = []
 		self.__header = []
 		self.__tsyslog = []
-		self.__setupTime = [] 
+		self.__setupTime = []
 		self.__setupTcal = dict()
 		self.__caltempRead = dict()
 		#self.__BB = []
@@ -481,7 +481,7 @@ class logFile:
 				       'astro3': ['1u','3u','5u','7u','9u','bu','du','fu','1l','3l','5l','7l','9l','bl','dl','fl'],
 				       'lba': ['1u','2u','5u','6u','3u','4u','7u','8u','1l','2l','5l','6l','3l','4l','7l','8l'],
 				       'wastro': ['1u','2u','3u','4u','5u','6u','7u','8u','1l','2l','3l','4l','5l','6l','7l','8l','9u','au','bu','cu','du','eu','fu','gu','9l','al','bl','cl','dl','el','fl','gl']}
-		
+
 		self.__epoch = datetime.datetime.utcfromtimestamp(0)
 
 		self.__readLog()
@@ -489,8 +489,8 @@ class logFile:
 	def __readLog(self):
 		'''
 		Reads the LOG file to find variables. Reading can be divided in two parts: header reading and data reading.
-		   
-			- In header reading, variables that only appear at the beginning of the LOG file are read. 
+
+			- In header reading, variables that only appear at the beginning of the LOG file are read.
 			  These variables usually indicate the individual DBBC channels configuration.
 
 			- In data reading, temperature variables are read. These variables are stored depending on their type
@@ -500,7 +500,7 @@ class logFile:
 			  variables. These variables should be read in both reading parts.
 
 		As a result, the class variable self.logData will store the DBBC and LO configuration detected, every scan number
-		with the source observed and all tsys calculated with their time tag.		   
+		with the source observed and all tsys calculated with their time tag.
                 '''
 
                 time = [] 	# List of Tsys time tag
@@ -517,12 +517,12 @@ class logFile:
 
 			#---------------Reading Header Variables------------------
 			# Read the LOG line, check if it is a header line and process it if it is so.
-			# headerComp will tell me if we have already finished reading header variables because 
+			# headerComp will tell me if we have already finished reading header variables because
 			# we have already started reading data
 			if not self.__headerComp:
 				if self.__readHeader(line):
 					continue
-		
+
 			#---------------Reading General Variables-----------------
 			# Check if the LOG line has information about general variables.
 			# General variables can appear anywhere inside the LOG file.
@@ -530,7 +530,7 @@ class logFile:
 				continue
 
 			#----------------Checking Data Validation-----------------
-			# Check if the LOG line is "data_valid=on/off". 
+			# Check if the LOG line is "data_valid=on/off".
 			if self.__checkDataValid(line):
 				continue
 
@@ -556,13 +556,13 @@ class logFile:
 	                                continue
 
 				tsysline_aux = self.__getTsys(self.__bbccodelist[self.__currentSetup], dt)
-	
-				"""	
+
+				"""
 				if not tsysline_aux:	# If is empty means that some temperature variable was empty during Tsys calculation.
 					#print self.__tempDict
 					#sleep(3)
 							# In this case, the last Tsys read from the LOG file is stored.
-				
+
 					tsysline_aux = []
 
 					sortedKeys = sorted(self.__tsyslogDict)
@@ -572,7 +572,7 @@ class logFile:
 						for j in self.__bbccodelist[self.__currentSetup]:
 							tsysline_aux.append(-1)
 					else:
-					
+
 						auxDict = self.__tsyslogDict[sortedKeys[-1]]
 						for j in self.__bbccodelist[self.__currentSetup]:
 							try:
@@ -580,7 +580,7 @@ class logFile:
 								tsyslogMean = sum(tsyslog_aux)/len(tsyslog_aux)
 							except:
 								tsyslogMean = -1
-	
+
 							tsysline_aux.append(tsyslogMean)
 				"""
 
@@ -614,7 +614,7 @@ class logFile:
 				tsysline.append(tsysline_aux)
 				"""
 
-				self.__intComplete = False		
+				self.__intComplete = False
 
 		# When the LOG file has been read, we fill the header using the variables read.
 		self.__fillHeader()
@@ -637,16 +637,16 @@ class logFile:
 			self.__indexline and self.__header are list where are stored the header of each band used in the LOG file.
 
 		The Tsys read from the LOG file is calculated here too.
-		'''	
+		'''
 
-		
+
 		#----------------ANTAB file header-------------------
 
 		# When the individual DBBC channels change their configuration, the time tag is stored
 		# in self.__bandTime.
-	
+
 		ind_off = 0
-	
+
 		# Make an ANTAB header for each band in the LOG file.
 		for bP in range(len(self.__setupTime)):
 			setup = self.__setupTime[bP][1]
@@ -665,7 +665,7 @@ class logFile:
                 	       	bw_aux = self.__bw[setup][i]
 				if self.dbbcModeName == "DDC": 			# If DBBC mode is DDC, LSB and USB should be differenciate.
                 	               	if i[-1] == 'l':				# USB (Upper SideBand) -> Freq + BW/2
-               			                bw_aux = -bw_aux 			# LSB (Lower SideBand) -> Freq - BW/2 
+               			                bw_aux = -bw_aux 			# LSB (Lower SideBand) -> Freq - BW/2
 					if "lsb" in band:
 						bbcFreq = -self.__bbcfq[setup][i]
 					else:
@@ -677,7 +677,7 @@ class logFile:
 						bbcnum = 16
 					else:
 						bbcnum = int(auxStr,16)			# DBBC channel number (from 1 to 16)
-					
+
 					sbLetter = i[-1].upper() 		# Sideband Letter (L or U)
 
 				elif self.dbbcModeName == "PFB":			# When DBBC uses PFB mode only use LSB.
@@ -696,7 +696,7 @@ class logFile:
 				tcal = self.__setupTcal[setup][i][0]
 
 				# Header string format
-				headerStr += '!Column %d = %s%d: if%s, bbc%02d, %.2f MHz , %sSB, BW= %04.2f MHz, Tcal=%.2f K\n'%(colnum,pol[0].upper(),polNum[pol[0].upper()],self.__whichif[setup][i].upper(),bbcnum,fchan,sbLetter,self.__bw[setup][i],tcal) 
+				headerStr += '!Column %d = %s%d: if%s, bbc%02d, %.2f MHz , %sSB, BW= %04.2f MHz, Tcal=%.2f K\n'%(colnum,pol[0].upper(),polNum[pol[0].upper()],self.__whichif[setup][i].upper(),bbcnum,fchan,sbLetter,self.__bw[setup][i],tcal)
 				# Index string format
 				indexStr += "'%s%d'," % (pol[0].upper(), polNum[pol[0].upper()])
                			colnum += 1
@@ -711,7 +711,7 @@ class logFile:
 
 		#print self.__tsyslogDict
 		sortedKeys = sorted(self.__tsyslogDict)		# Sort the Tsys read from the LOG file by their time tag
-		
+
 		for i in sortedKeys:
 			tsyslog = [i] 			# Store Tsys time tag (index 0)
 			auxDict = self.__tsyslogDict[i]
@@ -725,14 +725,14 @@ class logFile:
 				tsyslog.append(tsyslogMean) # Store Tsys dict (index 1)
 
 			self.__tsyslog.append(tsyslog) # Store Tsys dict with its time tag
-			
+
 
 
 	#------------------------------------------------------------------------------------
 	def __setParams(self):
 		'''
-		When header reading finish, the information read should be sorted. 
-		This method fill variables about DBBC channel identification, frequency and bandwidth 
+		When header reading finish, the information read should be sorted.
+		This method fill variables about DBBC channel identification, frequency and bandwidth
 		and initialize the dictionaries used to get temperature information.
 		'''
 
@@ -764,7 +764,7 @@ class logFile:
 
 			elif self.dbbcModeName == "DDC":						# If the DBBC uses DDC mode:
 				if not self.__currentSetup in self.__bbcinfo:
-					self.__bbcinfo[self.__currentSetup] = []	
+					self.__bbcinfo[self.__currentSetup] = []
 				self.__bbcinfo[self.__currentSetup].sort()
 				self.__bbcinfo[self.__currentSetup] = list(k for k,_ in itertools.groupby(self.__bbcinfo[self.__currentSetup]))
 				bbcinfo_aux = self.__bbcinfo[self.__currentSetup]
@@ -776,7 +776,7 @@ class logFile:
 							aux_code = 2**(index*2) + 2**(index*2+1)
 							if aux_code & self.__fila10gMode[self.__currentSetup]:
 								bbclcode=self.__formChannels[self.__formType][index]
-								self.__bbcfq[self.__currentSetup][bbclcode] = float(bbcinfo_aux[i][1]) 
+								self.__bbcfq[self.__currentSetup][bbclcode] = float(bbcinfo_aux[i][1])
 								self.__whichif[self.__currentSetup][bbclcode] = bbcinfo_aux[i][2]
 								self.__bw[self.__currentSetup][bbclcode] = float(bbcinfo_aux[i][3])
 								self.__bbccodelist[self.__currentSetup].append(bbclcode)
@@ -786,7 +786,7 @@ class logFile:
 							aux_code = 2**(index*2) + 2**(index*2+1)
 							if aux_code & self.__recMode[self.__currentSetup]:
 								bbclcode=self.__formChannels[self.__formType][index]
-								self.__bbcfq[self.__currentSetup][bbclcode] = float(bbcinfo_aux[i][1]) 
+								self.__bbcfq[self.__currentSetup][bbclcode] = float(bbcinfo_aux[i][1])
 								self.__whichif[self.__currentSetup][bbclcode] = bbcinfo_aux[i][2]
 								self.__bw[self.__currentSetup][bbclcode] = float(bbcinfo_aux[i][3])
 								self.__bbccodelist[self.__currentSetup].append(bbclcode)
@@ -800,15 +800,15 @@ class logFile:
 								self.__bbccodelist[self.__currentSetup].append(bbclcode)
 		                              	bbcucode='%su'%str(hex(aux)[-1])
 						self.__bbcfq[self.__currentSetup][bbcucode] = float(bbcinfo_aux[i][1])
-						self.__whichif[self.__currentSetup][bbcucode] = bbcinfo_aux[i][2] 
+						self.__whichif[self.__currentSetup][bbcucode] = bbcinfo_aux[i][2]
 						self.__bw[self.__currentSetup][bbcucode] = float(bbcinfo_aux[i][3])
-						self.__bbccodelist[self.__currentSetup].append(bbcucode)					
+						self.__bbccodelist[self.__currentSetup].append(bbcucode)
 
 			self.__bbccodelist[self.__currentSetup].sort()
 			#if self.calModeName[self.__currentSetup] == 'CONT':				# If the DBBC uses CONTINUOUS calibration mode:
 
 			for i in self.__bbccodelist[self.__currentSetup]:			#	Tcal of every DBBC channel should be got from RXG files
-				lofq = self.freqLOMHzArray[self.__currentSetup][self.__whichif[self.__currentSetup][i]][-1] 
+				lofq = self.freqLOMHzArray[self.__currentSetup][self.__whichif[self.__currentSetup][i]][-1]
 				pol = self.polArray[self.__currentSetup][self.__whichif[self.__currentSetup][i]][-1]
 				band = self.bandArray[self.__currentSetup][self.__whichif[self.__currentSetup][i]][-1]
 				bw_aux = self.__bw[self.__currentSetup][i]
@@ -823,24 +823,24 @@ class logFile:
 				tcal=get_tcal(lofq,pol,fchan, self.station().lower())
 
 				if not self.__caltempRead[self.__currentSetup]:
-					self.__tempDict[-1][i] = [tcal]				
+					self.__tempDict[-1][i] = [tcal]
 					self.__setupTcal[self.__currentSetup][i] = [tcal]
 
 		else:
 			#if self.calModeName[self.__currentSetup] == 'CONT':
 			for i in self.__bbccodelist[self.__currentSetup]:
 				self.__tempDict[-1][i] = self.__setupTcal[self.__currentSetup][i]
-	
+
 	#------------------------------------------------------------------------------------
 	def __readTempVar(self, line, nextLine):
 		"""
 		Read 'tpicd' temperature variable from the LOG file.
-		At the beginning, this method check two strings to detect if DBBC uses 
+		At the beginning, this method check two strings to detect if DBBC uses
 		CONT or SINGLE calibration mode. When calibration mode has been identified,
 		just use the string corresponding to the detected mode.
-		
+
 		To determine if the integration time has been exceeded, this method compare the
-		dates of the checked line and the next line. 
+		dates of the checked line and the next line.
 
 		@param line Line to check
 		@param nextLine The next line of the line to check
@@ -860,7 +860,7 @@ class logFile:
 			if not self.__headerComp and not self.__currentSetup in self.calModeName:		# If the calibration mode has been identified:
 				self.__setParams()								#	Call self.__setParams() method to prepare the variables used to store temperature information
 				self.__headerComp = True							# 	Set self.__headerComp to True, indicating that header reading has finished
-			
+
 			dt = self.__getDatetime(line)
 			if nextLine == "":
 				dt_nextLine = dt + datetime.timedelta(0,0,0,200)
@@ -870,7 +870,7 @@ class logFile:
 				self.__intComplete = True				  # has been exceeded, set self.__intComplete to True and store the date when the integration
 				self.__dtStartInt = dt					  # finished.
 
-			if tempInd == 0:						  # Only store temperature information if tempInd == 0, because it means that a reference string 
+			if tempInd == 0:						  # Only store temperature information if tempInd == 0, because it means that a reference string
 				pass							  # was found in the checked line.
 			else:
 				self.__getTempLine(line, tempInd)
@@ -879,7 +879,7 @@ class logFile:
 	def __checkDataValid(self, line):
 		"""
 		Read a LOG file line to check if the following lines have valid data or not.
-		When a 'data_valid=off' is read, it indicates that integration has finished 
+		When a 'data_valid=off' is read, it indicates that integration has finished
 		and Tsys is calculated.
 
 		@param line Line to check
@@ -890,7 +890,7 @@ class logFile:
 		if idIndex == 0:
 			pass
                	elif idIndex == 1:
-			if not self.__currentSetup == None:	 
+			if not self.__currentSetup == None:
 	                       	self.__dataValid = True
 	                       	self.__dtStartInt = self.__getDatetime(line)
 				if self.__newSetup:
@@ -918,22 +918,22 @@ class logFile:
 			- Source to observe
 			- LO configuration
 			- Tsys printed inside the LOG file
-			- In SINGLE calibration mode: tpiprime, tpical and caltemp can appear anywhere inside the LOG file, even if data is not valid. 
+			- In SINGLE calibration mode: tpiprime, tpical and caltemp can appear anywhere inside the LOG file, even if data is not valid.
 
 		@param line Line to check
 		"""
 
 		# If DBBC configuration mode was found, look for the DBBC channels used in the observation
-		if self.dbbcModeName == "PFB":		
-			vsiNum = self.__idLine(line, ['/vsi1=', '/vsi2='])		 
-                        if vsiNum != 0:						  # When DBBC uses PFB mode: 
+		if self.dbbcModeName == "PFB":
+			vsiNum = self.__idLine(line, ['/vsi1=', '/vsi2='])
+                        if vsiNum != 0:						  # When DBBC uses PFB mode:
 				auxStr = line.split('=')			  # "&setup01/vsi1=a05,a06,a07,a08,a09,a10,a11,a12,b05,b06,b07,b08,b09,b10,b11,b12"
 				if not self.__currentSetup in self.__vsiCh:
 					self.__vsiCh[self.__currentSetup] = [[],[]]
-				self.__vsiCh[self.__currentSetup][vsiNum-1] = auxStr[1].split('\n')[0].split(',')	
+				self.__vsiCh[self.__currentSetup][vsiNum-1] = auxStr[1].split('\n')[0].split(',')
 				return True
 
-                elif self.dbbcModeName == "DDC":				  
+                elif self.dbbcModeName == "DDC":
                 	if self.__idLine(line,['&dbbc']) and not self.__idLine(line,['/if=bbc']):			  # When DBBC uses DDC mode:
 				#print line
 				auxStr=line.split('/')[1].split('=')		  # "&dbbc01d/bbc01=638.49,a,16.00"
@@ -980,7 +980,7 @@ class logFile:
 					if self.calModeName[self.__currentSetup] == 'SINGLE':
 						self.__tempDict = [dict(),dict(),dict(),dict()]
 					elif self.calModeName[self.__currentSetup] == 'CONT':
-						self.__tempDict = [dict(),dict(),dict()] 
+						self.__tempDict = [dict(),dict(),dict()]
 
 				return True
 
@@ -991,7 +991,7 @@ class logFile:
 			if "ifd" in auxStr[1]:
 				if not curSetup in self.ifdSetup:
 					self.ifdSetup[curSetup] = auxStr[1].strip()
-			
+
 		#------------------------Fila10G Mode-------------------------
 		if self.__idLine(line, ['/fila10g_mode=']):
 			tmpLine = line.split('=')[1]
@@ -1015,7 +1015,7 @@ class logFile:
 				self.calModeName[self.__currentSetup] = 'CONT'
 
 			if self.calModeName[self.__currentSetup] != self.lastCalMode:
-				self.lastCalMode = self.calModeName[self.__currentSetup]	
+				self.lastCalMode = self.calModeName[self.__currentSetup]
 				if self.calModeName[self.__currentSetup] == 'SINGLE':
 					self.__tempDict = [dict(),dict(),dict(),dict(), dict()]
 				elif self.calModeName[self.__currentSetup] == 'CONT':
@@ -1031,7 +1031,7 @@ class logFile:
 			ifID = line.split('&')[1].split("/")[0]
 
 			if ifID != self.ifdSetup[self.__currentSetup]:
-				return True 
+				return True
 
                         auxStr = line.split(',')						#	"lo=loa,42500.00,usb,rcp,1.000"
 			ifsel = auxStr[0][-1]							# 	ifsel = 'a'
@@ -1066,12 +1066,12 @@ class logFile:
 			newPol = auxStr[3]							#	newPol = 'rcp'
 			newBand = auxStr[2]							#	newBand = 'usb'
 			for i in range(len(freqAux)):
-				if (freqAux[i] == newFreq) and (polAux[i] == newPol) and (bandAux[i] == newBand):		# If the new pair of frequency and polarization has been stored before for this IF, 
+				if (freqAux[i] == newFreq) and (polAux[i] == newPol) and (bandAux[i] == newBand):		# If the new pair of frequency and polarization has been stored before for this IF,
 					fill = False										# this new pair is not stored.
 					break
 
 			if fill:								# The program stored the pair of frequency and polarization.
-				freqAux.append(newFreq) 
+				freqAux.append(newFreq)
                         	polAux.append(newPol)
 				bandAux.append(newBand)
 				self.freqLOMHzArray[self.__currentSetup][ifsel] = freqAux
@@ -1080,14 +1080,14 @@ class logFile:
 
                         return True
 
-		if self.__currentSetup in self.calModeName: 
+		if self.__currentSetup in self.calModeName:
 
-	                if self.calModeName[self.__currentSetup] == "SINGLE":		# If the DBBC uses SINGLE calibration mode, 
+	                if self.calModeName[self.__currentSetup] == "SINGLE":		# If the DBBC uses SINGLE calibration mode,
 	                        auxReference = ['/tpi/', '/tpical', '/tpdiff/', '/caltemp/']	# check the LOG file line to look for tpiprime, tpical and caltemp temperature variables.
-	                        tempInd = self.__idLine(line,auxReference)       
+	                        tempInd = self.__idLine(line,auxReference)
 
 	                        if tempInd != 0:					# If any temperature variable was found, store it in its dictionary.
-		                	tempInd += 1					# If SINGLE calibration mode was identified, increase temperature index in one.  
+		                	tempInd += 1					# If SINGLE calibration mode was identified, increase temperature index in one.
 	                	        self.__getTempLine(line, tempInd)		# At the beginning     -> tempDict: [tpiprime, tpical, caltemp]
 	                                return True					# SINGLE cal detected  -> tempDict: [tpicd, tpiprime, tpical, caltemp]
 
@@ -1095,20 +1095,20 @@ class logFile:
 											# 	"/tsys/1l,130.8,1u,130.8,3l,130.8,3u,131.0,ia,145.5"
 					dt = self.__getDatetime(line)			#       time_aux: Time tag of the checked line
 					time_aux =  (dt - self.__epoch).total_seconds()
-					
+
 					#days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
 					#time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
 					auxStr = line.split('/')[-1].split(',')
 
 					if not time_aux in self.__tsyslogDict:
-						self.__tsyslogDict[time_aux] = dict()	
+						self.__tsyslogDict[time_aux] = dict()
 
 					auxDict = self.__tsyslogDict[time_aux]
-	
+
 					for i in range(0,len(auxStr),2):
 						dictExist = False
 	                        		if (auxStr[i] in auxDict):
-	                                		dictExist = True		
+	                                		dictExist = True
 						for element in self.__chId:
 	                                		if element==auxStr[i][self.__chIdIndex]:
 								if dictExist:
@@ -1120,28 +1120,28 @@ class logFile:
 									try:
 										auxDict[auxStr[i]] = [float(auxStr[i+1])]
 									except:
-										auxDict[auxStr[i]] = [-1]		
-	
+										auxDict[auxStr[i]] = [-1]
+
 					self.__tsyslogDict[time_aux] = auxDict	# self.__tsyslogDict = [ time_aux : [ '1l' : [130.8], '1u' : [130.8], '3l' : [130.8], '3u' : [131.0] ], ... ]
 					return True
-	
+
 			else:
 				if self.__idLine(line, ['/caltemp/']):
 					self.__getTempLine(line,len(self.__tempDict))
 					return True
 											# If the DBBC uses CONTINUOUS calibration mode, check the LOG file line to look for Tsys printed inside the LOG file.
 				elif self.__idLine(line, ['#tpicd#tsys/']):		# 	"#tpicd#tsys/1l,46.3,1u,49.5"
-					dt = self.__getDatetime(line)			#	time_aux: Time tag of the checked line  
+					dt = self.__getDatetime(line)			#	time_aux: Time tag of the checked line
 					time_aux =  (dt - self.__epoch).total_seconds()
 	                                #days = (dt - datetime.datetime(dt.year,1,1,dt.hour,dt.minute,dt.second,dt.microsecond)).days + 1
 	                                #time_aux = days + (dt.hour/24.) + (dt.minute/(60.*24.)) + (dt.second/(3600.*24.)) + (dt.microsecond/(3600.*24.*1e6))
 	                                auxStr = line.split('/')[-1].split(',')
-					
+
 					if not time_aux in self.__tsyslogDict:
 		                                self.__tsyslogDict[time_aux] = dict()
-	
+
 	                                auxDict = self.__tsyslogDict[time_aux]
-	
+
 	                                for i in range(0,len(auxStr),2):
 		                                dictExist = False
 	                                        if (auxStr[i] in auxDict):
@@ -1153,49 +1153,49 @@ class logFile:
 		                                                                auxDict[auxStr[i]].append(float(auxStr[i+1]))
 	                                                                except:
 		                                                                auxDict[auxStr[i]].append(-1)
-	                                                        else:   
+	                                                        else:
 	                                                                try:
 	                                                                        auxDict[auxStr[i]] = [float(auxStr[i+1])]
 	                                                                except:
 	                                                                        auxDict[auxStr[i]] = [-1]
-	
+
 	                                self.__tsyslogDict[time_aux] = auxDict		# self.__tsyslogDict = [ time_aux : [ '1l' : [46.3], '1u' : [49.5] ], ... ]
 	                                return True
 		else:
-			auxReference = ['/tpi/', '/tpical', '/caltemp/']        
-			tempInd = self.__idLine(line,auxReference)              
-                                        
-			if tempInd != 0:                                        
-				self.__getTempLine(line, tempInd)               
+			auxReference = ['/tpi/', '/tpical', '/caltemp/']
+			tempInd = self.__idLine(line,auxReference)
+
+			if tempInd != 0:
+				self.__getTempLine(line, tempInd)
 				return True
 
 
 		return False
-			
+
 	#------------------------------------------------------------------------------------
 	def __getTsys(self, bbccodelist, dt):
 		'''
 		Calculate Tsys for each individual DBBC channel used in the LOG file.
-		
+
 		@param bbccodelist List that contains all individual DBBC channel used in the LOG file
-		@param dt Date when integration was completed. 
+		@param dt Date when integration was completed.
 		'''
 
 		if not self.__headerComp and not (self.__currentSetup in self.calModeName):		# If header reading was not finished yet means that no tpicd line was found in the LOG file.
 			self.calModeName[self.__currentSetup] = "SINGLE"				# In that case, set SINGLE as the calibration mode used by the DBBC.
-			self.__setParams()	
+			self.__setParams()
 			self.__headerComp = True
 
                 temp=[]
                 dt_newOrder = datetime.datetime(2015,9,17)
                 tpzero = 0
                 for i in bbccodelist:
-			if not i in self.__tempDict[-1]:			
-				temp.append(-1)                                 
+			if not i in self.__tempDict[-1]:
+				temp.append(-1)
                                 continue
 
                 	tcal = self.__tempDict[-1][i][0]			# Get Tcal from temperature dictionary. This dictionary was filled with Tcal from RXG files or LOG file.
-			if tcal == 0:						
+			if tcal == 0:
 				temp.append(-1)					# If Tcal is 0, Tsys cannot be calculated.
                                 continue
 
@@ -1205,7 +1205,7 @@ class logFile:
 	                                if dt < dt_newOrder:				# Until 17th september 2015, tpicd2 was Vsys ON and tpicd1 was Vsys OFF
 	                         	       vsysONlist = self.__tempDict[1][i]
 	                                       vsysOFFlist = self.__tempDict[0][i]
-	                                else:						# After 17th september 2015, tpicd1 is Vsys ON and tpicd2 is Vsys OFF 
+	                                else:						# After 17th september 2015, tpicd1 is Vsys ON and tpicd2 is Vsys OFF
 	                                       vsysONlist = self.__tempDict[0][i]
 	                                       vsysOFFlist = self.__tempDict[1][i]
 				except:
@@ -1222,7 +1222,7 @@ class logFile:
                                 if vsysON <= vsysOFF:					# If Vsys OFF is greater than Vsys ON, Tsys cannot be calculated.
                                 	tsys=-1
                                 else:
-                                        tsys=0.5*tcal*(vsysON+vsysOFF)/(vsysON-vsysOFF) 
+                                        tsys=0.5*tcal*(vsysON+vsysOFF)/(vsysON-vsysOFF)
 
 			elif self.calModeName[self.__currentSetup] == "SINGLE":		# If the DBBC uses CONTINUOUS calibration mode, tpicd, tpiprime and tpical will be used to calculate Tsys.
 
@@ -1240,10 +1240,10 @@ class logFile:
 						vsysList = self.__tempDict[0][i]
 					if self.__tempDict[3]:
 						tpidiffList = self.__tempDict[3][i]
-						
+
 				except Exception, e:							# Tsys cannot be calculated if there is any exception getting temperature variables
 					temp.append(-1)					# from temperature dictionaries for a certain DBBC channel.
-					continue				
+					continue
 				if len(tpidiffList) != 0:
 					if len(vsysList) == 0:
 						temp.append(-1)
@@ -1260,9 +1260,9 @@ class logFile:
 				else:
 	                                if len(tpiprimeList) == 0 or len(tpicalList) == 0:	# If any temperature list is empty, Tsys cannot be calculated.
 						temp.append(-1)
-	                                        continue					
+	                                        continue
 
-					
+
 		                        tpiprime = sum(tpiprimeList)/len(tpiprimeList)		# Get the mean value of each temperature variable.
 	                                tpical = sum(tpicalList)/len(tpicalList)
 					if len(vsysList) == 0:
@@ -1273,7 +1273,7 @@ class logFile:
 						vsys = sum(vsysList)/len(vsysList)
 	                                if tpical<=tpiprime:					# If tpiprime is greater than tpical, Tsys cannot be calculated.
 	                                	tsys=-1
-						#print "tpiprime: %f; tpical: %f" % (tpiprime,tpical) 
+						#print "tpiprime: %f; tpical: %f" % (tpiprime,tpical)
 	                                else:
 	                                	tsys=tcal*(vsys-tpzero)/(tpical-tpiprime)
 
@@ -1289,11 +1289,11 @@ class logFile:
 	def __getTempLine(self, line, tempInd):
 		'''
 		Store temperature variables in the proper temperature dictionary.
-		
+
 		@param line Checked line (It should be checked before using self.__idLine method)
 		@param tempInd Index returned by self.__idLine method that indicates what is the temperature dictionary
 			       where the temperature variable found should be stored.
-		'''	
+		'''
 
 		auxDict = self.__tempDict[tempInd - 1]
                 auxStr = line.split('/')[-1].split(',')
@@ -1301,9 +1301,9 @@ class logFile:
 		if self.__currentSetup in self.calModeName:
 	                tpcontDet = (tempInd == 1) and (self.calModeName[self.__currentSetup] == "CONT")	# If the DBBC uses CONTINUOS calibration mode and the temperature variable is tpicd,
 		else:												# tpcontDet variable will be set to True, otherwise will be set to False.
-			tpcontDet = False		
+			tpcontDet = False
 
-		if tpcontDet:										# tpicd line using CONTINUOUS calibration mode: 
+		if tpcontDet:										# tpicd line using CONTINUOUS calibration mode:
                 	auxRange = range(0,len(auxStr),3)						# 	'#tpicd#tpcont/9l,17453,16984,9u,17553,17100,ic,1464.25'
                 else:											#	- Each individual DBBC channel has two temperature values
                         auxRange = range(0,len(auxStr),2)						# tpicd line using SINGLE calibration mode:
@@ -1336,18 +1336,18 @@ class logFile:
                                                         if tpcontDet:
                                                                 self.__tempDict[1][auxStr[i]] = [-1]
 
-			
-	
+
+
 		self.__tempDict[tempInd - 1] = auxDict
 
 		if (tempInd == len(self.__tempDict)):				# If temperature variable read was tcal, update self.__setupTcal with the new tcal value.
-			self.__setupTcal[self.__currentSetup] = self.__tempDict[-1]	
-			self.__caltempRead[self.__currentSetup] = True	
+			self.__setupTcal[self.__currentSetup] = self.__tempDict[-1]
+			self.__caltempRead[self.__currentSetup] = True
 
 	#------------------------------------------------------------------------------------
 	def __readHeader(self, line):
 		'''Reads one LOG file line to find header variables.
-		Header variables are those coming from the procedures the first time they are executed, 
+		Header variables are those coming from the procedures the first time they are executed,
 		because later they no longer appear in the log. Usually associated to different modes
 		or settings of the individual DBBC channels
 
@@ -1358,7 +1358,7 @@ class logFile:
 		'''
 
 		#-------------------DBBC Configuration------------------------
-		
+
 		# If DBBC configuration mode was not found, look for it.
 		if self.dbbcModeName == None:					  # Look for DBBC configuration mode
 			indAux = self.__idLine(line,["Rack=DBBC", 'equip,dbbc_']) # Check if one of these strings is in the LOG file line
@@ -1366,8 +1366,8 @@ class logFile:
 				pass
 			else:
 				if indAux == 1:					  # If indAux == 1, "Rack=DBBC" found.
-		                        aux1 = line.split(' ')[1]		  
-	                                aux2 = aux1.split('_')			  
+		                        aux1 = line.split(' ')[1]
+	                                aux2 = aux1.split('_')
 	                                if len(aux2)==2:			  # " Rack=DBBC_PFB  ..." -> PFB
 	 	                               self.dbbcModeName = aux2[1]	  # " Rack=DBBC_DDC  ..." -> DDC
 	                                else:					  # " Rack=DBBC      ..." -> DDC
@@ -1396,10 +1396,10 @@ class logFile:
 			self.__formType = line.split('=')[1][:-1]
 			#self.__lower = False
 			return True
-		
+
 
 		return False
-			
+
 	#------------------------------------------------------------------------------------
 	def __idLine(self, line, reference):
 		'''
@@ -1436,8 +1436,8 @@ class logFile:
 
 	#------------------------------------------------------------------------------------
 	def getLogData(self):
-		
-		return self.logData 
+
+		return self.logData
 
 	#------------------------------------------------------------------------------------
         def loArray(self):
@@ -1458,7 +1458,7 @@ class logFile:
 		'''
 		'''
 
-		fLOArray = dict() 
+		fLOArray = dict()
 		pArray = dict()
 
 		for setup in reversed(self.polArray.keys()):
@@ -1472,28 +1472,28 @@ class logFile:
 						pass
 					else:
 						for i in range(0, len(tup)):
-							if (tup[i][0] == self.freqLOMHzArray[setup][key][ind]) and (tup[i][1] == self.polArray[setup][key][ind]): 
+							if (tup[i][0] == self.freqLOMHzArray[setup][key][ind]) and (tup[i][1] == self.polArray[setup][key][ind]):
 		 						appendData = False
 					if appendData:
 						tup.append((self.freqLOMHzArray[setup][key][ind], self.polArray[setup][key][ind]))
-		
+
 			for el in tup:
 				fLOArray[setup].append(el[0])
 				pArray[setup].append(el[1])
 
-		return fLOArray, pArray	
+		return fLOArray, pArray
 
 	#------------------------------------------------------------------------------------
 	def station(self):
 		'''Returns the name of the station in uppercase. The string is extracted in the constructor
 		'''
-		return self.stationName	
+		return self.stationName
 
 	#------------------------------------------------------------------------------------
 	def experiment(self):
 		'''Returns the name of the experiment in lowercase. The string is extracted in the constructor
 		'''
-		return self.expName	
+		return self.expName
 	#------------------------------------------------------------------------------------
 	def dbbcMode(self):
 		'''Returns DBBC mode (PFB or DDC)
@@ -1515,7 +1515,7 @@ class logFile:
 		rxgFileArray = dict()
 
 		for setup in reversed(fLOArray.keys()):
-			rxgFileArray[setup] = []			
+			rxgFileArray[setup] = []
 			for fLO in fLOArray[setup]:
 				rxgName = self.getRXGFileName(fLO)
 				rxgFileArray[setup].append( rxgName )
@@ -1546,7 +1546,7 @@ class logFile:
 		fileRXG = " "
 
 		if rxgfiles:
-			ficherosRXG = rxgfiles	
+			ficherosRXG = rxgfiles
 		else:
 			ficherosRXG = os.listdir(self.__rxgDirectory)
 
@@ -1555,7 +1555,7 @@ class logFile:
 				#stName = fileN[5:7].lower()
 				#if stName != self.stationName.lower():
 				#	continue
-				
+
 				# If the rxgfile are provided no need to check the name
 				stcode = self.stationName[0].upper()+self.stationName[1].lower()
 				if stcode not in fileN and not rxgfiles:
@@ -1619,7 +1619,7 @@ class antabHeader:
 
 		linerxg = []
 		fLOArray, polArray = self.logF.loPArray()
-		
+
 		for setup in reversed(fLOArray.keys()):
 			i = 0
 			for fLO in fLOArray[setup]:
@@ -1640,26 +1640,26 @@ class antabHeader:
 		@param RXG file name
 		@return  a line of the type: POLY=A,B,C,D (where A, B,C,D are coefficients of a polynomium)
 		'''
-	
+
 		dpfuLineArray = dict()
 		rxgFilesArray = self.logF.rxgFiles()
 		logData = self.logF.getLogData()
 		header = logData[0]
 		#index = 0
 
-		for setup in reversed(rxgFilesArray.keys()):	
+		for setup in reversed(rxgFilesArray.keys()):
 			dpfuLineArray[setup] = []
 			for rxgFileName in sorted(set(rxgFilesArray[setup])):
 				strLine = ""
 				if rxgFileName == " ":
 					continue
-				rFile = rxgFile(rxgFileName)	
+				rFile = rxgFile(rxgFileName)
 				dpfuList = rFile.dpfu()
 				freqMin, freqMax = rFile.freqMinMax()
 				#bw = self.logF.bandwidth()
-	
+
 				strLine = 'GAIN %s ELEV DPFU=' % (self.stationName)
-	
+
 				i = 0
 				for element in dpfuList:
 					if i == 0:
@@ -1682,19 +1682,19 @@ class antabHeader:
 					freqAux = float(auxStr[6])
 					#if int(freqAux) >= freqMin and int(freqAux) <= freqMax:
 					if freqAux >= (freqMin-float(auxStr[11])) and freqAux <= (freqMax+float(auxStr[11])):
-						ifFreq.append(freqAux)	
+						ifFreq.append(freqAux)
 						ifBw.append(float(auxStr[11]))
-		
+
 				if len(ifFreq) == 0:
 					ifFreq = [freqMin,freqMax]
 					ifBw = [0,0]
-	
+
 				strLine = "%s FREQ=%.2f,%.2f" % (strLine, min(ifFreq) - ifBw[ifFreq.index(min(ifFreq))], max(ifFreq) + ifBw[ifFreq.index(max(ifFreq))])
 				#strLine = "%s      FREQ=%d,%d" % (strLine, int( float(freqMin)), int(float(freqMax)+bw) )
 				#strLine = "%s      FREQ=%d,%d" % (strLine, int( float(freqMin)), int(float(freqMax)) )
 
 				dpfuLineArray[setup].append(strLine)
-	
+
 			#index += 1
 
 		return dpfuLineArray
@@ -1717,7 +1717,7 @@ class antabHeader:
 					continue
 				rFile = rxgFile(rxgFileName)
 				gainList = rFile.gain()
-	
+
 				strLine = 'POLY='
 				i = 0
 				for element in gainList[2:]:
@@ -1730,10 +1730,10 @@ class antabHeader:
 					strLine = strLine.strip()[:-1]
 				strLine += ' /\n'
 				polyLineArray[setup].append(strLine)
-	
+
 		#strLine = "/"
 		#polyLineArray.append(strLine)
-	
+
 		return polyLineArray
 
 	# --------------------------------------------------------------------------------------------
@@ -1757,7 +1757,7 @@ class antabHeader:
 				rxgFileName = self.logF.getRXGFileName(lof)
 				if rxgFileName == " ":
 					lstr = '!     LO=%.2f MHz %s' % (lof, polArray[setup][i])
-	                        	loLinesList.append(lstr)	
+	                        	loLinesList.append(lstr)
 					freqList.append(lof)
 				else:
 					rFile = rxgFile(rxgFileName)
@@ -1770,8 +1770,8 @@ class antabHeader:
 			loLines += newLoLines
 		#line.append('!     LO= %.2f MHz rcp: calYsM.rxg 2012 11 06\n' % (freqLOMHz, rxgFileName, date))
 		#line.append('!     LO= %.2f MHz lcp: calYsM.rxg 2012 11 06\n' % (freqLOMHz, rxgFileName, date))
-		
-		return loLines	
+
+		return loLines
 
 	# --------------------------------------------------------------------------------------------
 	def firstLines(self):
@@ -1784,13 +1784,13 @@ class antabHeader:
 		waveBand = ""
 		for wv in waveBandArray:
 			waveBand = "%s %scm" % (waveBand, wv)
-		waveBand = "%s." % waveBand 
+		waveBand = "%s." % waveBand
 
 		#fLOMHzArray = self.logF.loArray()
 
 		dbbcMode = self.logF.dbbcMode()
 		#calMode = self.logF.calMode()
-	
+
 		line = []
 		line.append('! Amplitude calibration data for %s in %s.' % (self.stationName, self.expName))
 		line.append('! For use with AIPS task ANTAB.')
@@ -1802,7 +1802,7 @@ class antabHeader:
 		line.append('! DBBC used in mode %s' % dbbcMode)
 		#line.append('! Calibration mode: %s' % calMode)
 
-		line.append('! Produced on %s using antabfs.py version: %s' % (todayDate, datetime.datetime.strptime(str(version), "%Y%m%d").strftime("%Y-%m-%d"))
+		line.append('! Produced on %s using antabfs.py version: %s' % (todayDate, datetime.datetime.strptime(str(version), "%Y%m%d").strftime("%Y-%m-%d")))
 
 		return line
 
@@ -1849,7 +1849,7 @@ class antabHeader:
 		wavebandArray = sorted(set(wavebandArray), key=float, reverse=True)
 
 		return wavebandArray
-	
+
 #--------- Alberto Moreno section --------------------------------------------------------------------
 class Selection(object):	#clase para la selección manual de los datos
 
@@ -1868,7 +1868,7 @@ class Selection(object):	#clase para la selección manual de los datos
 		self.ax.set_xlabel('Time')
 		self.ax.set_ylabel('Tsys [K]')
 		self.ax.grid()
-		
+
 		self.timeInit = self.x[0]
 		new_x = []
 		new_y = []
@@ -1887,7 +1887,7 @@ class Selection(object):	#clase para la selección manual de los datos
 		self.block = np.array(new_block)
 
 		self.fit,self.low,self.up,self.inx,self.iny,self.outx,self.outy=outliers(self.block,self.x,self.y,self.tolerance)
-	
+
 		self.ax.plot(self.x,self.fit,'b-',label='fit')
 		self.ax.plot(self.x,self.low,'k--',label='lower/upper')
 		self.ax.plot(self.x,self.up,'k--')
@@ -1895,9 +1895,9 @@ class Selection(object):	#clase para la selección manual de los datos
 		self.ax.plot(self.inx,self.iny,'g*',label='data')
 		self.ax.legend(loc='best')
 		#defining the limits of the plot
-		#self.xmin,self.xmax=plt.xlim()		
+		#self.xmin,self.xmax=plt.xlim()
 		self.xmin = min(self.x)
-		self.xmax = max(self.x)		
+		self.xmax = max(self.x)
 		self.ymin,self.ymax=plt.ylim()
 		xdiff = self.xmax - self.xmin
 		self.xmin=self.xmin-(xdiff*0.01)
@@ -1923,7 +1923,7 @@ class Selection(object):	#clase para la selección manual de los datos
 			self.labels.append(text)
 		self.ax.set_xticklabels(self.labels)
 		plt.show()
-		
+
 
 	def getDeletedX(self):
 		return self.delIndX
@@ -1937,7 +1937,7 @@ class Selection(object):	#clase para la selección manual de los datos
 			self.press=True
 		else:
 			self.press=False
-		
+
 	def on_motion(self, event):
 		#if event.inaxes != self.rect.axes: return
 		if self.press and event.inaxes != None:
@@ -1947,7 +1947,7 @@ class Selection(object):	#clase para la selección manual de los datos
 			self.rect.set_height(self.dy - self.y0)
 			self.rect.set_xy((self.x0, self.y0))
 			self.rect.figure.canvas.draw()
-	
+
 	def on_release(self, event):
 		if self.press:
 			if event.inaxes == None:
@@ -1962,7 +1962,7 @@ class Selection(object):	#clase para la selección manual de los datos
 			self.ymax=max(self.y0,self.yf)
 			self.xrectangle.append([self.xmin,self.xmax])
 			self.yrectangle.append([self.ymin,self.ymax])
-			
+
 			#elimina puntos en el rectangulo y recalcula el ajuste
 			'''
 			self.cond=(self.x<self.xmin)+(self.x>self.xmax)+(self.y<self.ymin)+(self.y>self.ymax)
@@ -1970,12 +1970,12 @@ class Selection(object):	#clase para la selección manual de los datos
 			self.y=np.extract(self.cond,self.y)
 			self.block=np.extract(self.cond,self.block)
 			'''
-			
+
 			self.y=modifydata(self.x,self.y,self.block,self.xmax,self.xmin,self.ymax,self.ymin)
 			self.fit,self.low,self.up,self.inx,self.iny,self.outx,self.outy=outliers(self.block,self.x,self.y,self.tolerance)
-			
+
 			#sustituir puntos malos por media geometrica o moda
-			
+
 			self.ax.cla()
 			self.ax.set_title('Tsys %s'%self.title)
 			self.ax.set_xlabel('Time')
@@ -1988,7 +1988,7 @@ class Selection(object):	#clase para la selección manual de los datos
 			self.ax.plot(self.outx,self.outy,'ro',label='outliers')
 			self.ax.plot(self.inx,self.iny,'g*',label='data')
 			self.ax.legend(loc='best')
-			
+
 			#self.xmin,self.xmax=plt.xlim()
 			self.xmin = min(self.x)
 			self.xmax = max(self.x)
@@ -2109,7 +2109,7 @@ def get_tcal(lofq,pol,freq,station):
 		for i in lall:
 			if i[-4:]=='.rxg':
 				rxglist.append(caldir+i)									#obtain .rxg format files
-	
+
 	fileok=False
 	tcal=0
 	for filename in rxglist:
@@ -2174,7 +2174,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 		if setupList[1] in dpfuLines_aux:
 			pass
 		else:
-			dpfuLines_aux.append(setupList[1]) 
+			dpfuLines_aux.append(setupList[1])
 	"""
 
 	tsyslogNLine = 0
@@ -2193,7 +2193,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 				f.write('TSYS %s FT = 1.0 TIMEOFF=0\n' % stationName)
 				f.write(indexline[setupTime_ind][0:-1]+'\n')
 				f.write('/\n')
-			
+
 				for line in header[setupTime_ind]:
 					f.write(line)
 				setupTime_ind += 1
@@ -2228,7 +2228,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 							else:
 								break
 							f.write(strLine)
-								
+
 					f.write(j)
 					break
 		else:
@@ -2263,7 +2263,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 								else:
 									break
 								f.write(strLine)
-									
+
 						f.write(j)
 						break
 
@@ -2298,7 +2298,7 @@ def write_antab(fileOut,header,indexline,scanline,tsysline,block,time, tsyslog, 
 		#m=int((time[i]-(d + (h/24.)))*(60*24))
 		#s=int((time[i]-(d + (h/24.) + (m/(60.*24.))))*(3600*24))
 		#us=int((time[i]-(d + (h/24.) + (m/(60.*24.)) + (s/(3600.*24.)))) * (3600*24*1e2))
-	
+
 		strline='\n%03.0f %02.0f:%05.2f'%(d,h,m)
 		for j in tsysline[i]:
 			try:
@@ -2336,7 +2336,7 @@ def prefilter(tsysline,block,maxlim):
 				goodblock=(block==block[j])*(tsysline[i]>0)*(tsysline[i]<maxlim)
 				oklist=np.extract(goodblock,tsysline[i])
 				jcount=j
-				while len(oklist)==0:		#i don't know what to do in this case should i copy values from another scan with the same source? this will not work in the last serie of data 
+				while len(oklist)==0:		#i don't know what to do in this case should i copy values from another scan with the same source? this will not work in the last serie of data
 					goodblock=(block==block[jcount])*(tsysline[i]>0)*(tsysline[i]<maxlim)
 					oklist=np.extract(goodblock,tsysline[i])
 					jcount=jcount+1
@@ -2344,7 +2344,7 @@ def prefilter(tsysline,block,maxlim):
 						#oklist=[50]
 						okcond=(tsysline[i]>0)*(tsysline[i]<maxlim)
 						oklist=np.extract(okcond,tsysline[i])#if nothing good, compute mean of all data, another alternative is delete the whole line but is more difficult to implement and you lose data in all bbc
-						break		
+						break
 				gm=1
 				for k in oklist:
 					gm=gm*(k)**(1/float(len(oklist)))
@@ -2372,7 +2372,7 @@ def main(args):
 		print logFileName
 		global station
 		station = logFileName[-6:-4]
-		logFileName = "/usr2/log/%s" % (str(args[-1]))		
+		logFileName = "/usr2/log/%s" % (str(args[-1]))
 
 	antabFile = os.path.dirname(os.path.abspath(__file__)) + ('/%s.antabfs' % (logFileName.split('/')[-1].split('.')[0]))
 
@@ -2387,13 +2387,13 @@ def main(args):
 	maxlim=10000
 
 	logData = logF.getLogData()
-	header = logData[0] 
+	header = logData[0]
 	indexline = logData[1]
-	scanline = logData[2] 
-	tsysline = logData[3] 
-	block = logData[4] 
-	time = logData[5] 
-	tsyslog = logData[6] 
+	scanline = logData[2]
+	tsysline = logData[3]
+	block = logData[4]
+	time = logData[5]
+	tsyslog = logData[6]
 	setupTime = logData[7]
 
 	#bands = logF.loArray()
@@ -2409,7 +2409,7 @@ def main(args):
 			bbclist.append(auxStr[4].strip(',') + ' ' + auxStr[5].strip(',')+' '+auxStr[9].strip(',')+', Freq '+auxStr[6]+' MHz, '+auxStr[3][0]+'CP' )
 
 		if bP == (len(setupTime)-1):
-			endInd = len(time)	
+			endInd = len(time)
 		else:
 			for ind in range(len(time)):
 				if time[ind] >= setupTime[bP+1][0]:
@@ -2467,13 +2467,13 @@ def main(args):
 		tsyswrite_aux.append(np.matrix.transpose(np.array(alltsys_aux)))
 		timewrite_aux.append(time_aux)
 		blockwrite_aux.append(block_aux)
-		
+
 		startInd = endInd
 
 	#print 'Close the plot and choose an option:'
 	save=raw_input('Would you like to save the results? y/n: ')
 	if save == 'y':
-		dpfuLines, polyelevLine = antabH.writeAntabPreamble(antabFile)		
+		dpfuLines, polyelevLine = antabH.writeAntabPreamble(antabFile)
 		tsyswrite = None
 		timewrite = None
 		blockwrite = None
@@ -2496,7 +2496,7 @@ def main(args):
 							nan_matrix = np.zeros((nrow,coldiff))
 							nan_matrix.fill(np.nan)
 							tsyswrite = np.concatenate((tsyswrite,nan_matrix),axis=1)
-						
+
 					tsyswrite = np.concatenate((tsyswrite, tsyswrite_aux[ind]), axis=0)
 			if len(timewrite_aux) != 0:
 				if timewrite is None:
@@ -2527,7 +2527,7 @@ Options:
 
 
 All RXG files are supposed to be under /usr2/control/rxg_files/. If the -f option is not given, the script
-will search there for a valid RXG file. Valid files are those which define a frequency range that contains 
+will search there for a valid RXG file. Valid files are those which define a frequency range that contains
 the observed setup in the log file AND match the station code in the log file name. To do so it must be
 named with the station code as Sc, e.g.:
 calYsQ.rxg
