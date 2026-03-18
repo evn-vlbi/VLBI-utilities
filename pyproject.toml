@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evn-utilities"
+version = "3.0"
+description = "Utilities for VLBI observations at EVN stations"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Alberto Moreno, Pablo de Vicente, Francisco Javier Beltran, Benito Marcote"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "numpy>=1.26.0",
+    "matplotlib>=3.8.0",
+    "scipy>=1.12.0",
+    "statsmodels>=0.14.0",
+    "rich-argparse>=1.0.0",
+    "pyqt5"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "black>=21.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+antabfs = "evn_utilities.antabfs.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/evn-vlbi/VLBI-utilities"
+Repository = "https://github.com/evn-vlbi/VLBI-utilities"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

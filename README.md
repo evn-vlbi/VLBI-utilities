@@ -7,10 +7,10 @@ Utilities that can be used at stations to help with VLBI observations. For examp
 Generation of antab files for continuous calibration (80 Hz). Usage:
 
 ```bash
-antabfs.py [-f rxg_files_list] fs_log_file
+antabfs.py [-f rxg_files_list] [-i] fs_log_file
 ```
 All RXG files are supposed to be under /usr2/control/rxg_files/. If the -f option is not given, the script
-will search there for a valid RXG file. Valid files are those which define a frequency range that contains 
+will search there for a valid RXG file. Valid files are those which define a frequency range that contains
 the observed setup in the log file AND match the station code in the log file name. To do so it must be
 named with the station code as Sc, e.g.:
 calYsQ.rxg
