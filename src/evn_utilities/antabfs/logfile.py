@@ -112,6 +112,7 @@ class LogFile:
         self._tsys_log_dict: dict[float, dict[str, list[float]]] = {}
 
         self._scan_line: list[str] = []
+        self._scan_source: dict[int, str] = {}
         self._index_line: list[str] = []
         self._header: list[str] = []
         self._tsys_log: list[list[float]] = []
@@ -512,6 +513,7 @@ class LogFile:
             if dt:
                 days = (dt - datetime.datetime(dt.year, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond)).days + 1
                 source_name = line.split("=")[1].split(",")[0]
+                self._scan_source[self._scan_num] = source_name
                 minute_frac = dt.minute + dt.second / 60.0 + dt.microsecond / 60e6
                 self._scan_line.append(f"\n! {days:03d} {dt.hour:02d}:{minute_frac:05.2f}: "
                     f"scanNum={self._scan_num:04d} scanName={self._scan_name} source={source_name}")
@@ -951,6 +953,13 @@ class LogFile:
 
     def cal_mode(self) -> dict[str, str]:
         return self.cal_mode_name
+
+    def scan_sources(self) -> dict[int, str]:
+        """Return ``{scan number: source name}`` from the ``:source=`` lines.
+
+        Scan numbers are the block indices attached to every Tsys sample (``get_log_data()[4]``).
+        """
+        return dict(self._scan_source)
 
     def rxg_dirs(self) -> list[str]:
         """Directories searched for RXG files."""
