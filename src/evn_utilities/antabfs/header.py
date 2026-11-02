@@ -8,18 +8,25 @@ from __future__ import annotations
 
 import datetime
 
+import numpy as np
+
 from . import __version__ as version
 from .logfile import LogFile
 from .rxg import RxgFile
 
 
 class AntabHeader:
-    """Create the header sections of an ANTAB file."""
+    """Create the header sections of an ANTAB file.
 
-    def __init__(self, log_file: LogFile) -> None:
+    If *sefd* (``{'R': Jy, 'L': Jy}``) is given, the header runs in SEFD mode: no RXG file is read, and
+    the GAIN/POLY lines must be built afterwards with :func:`sefd_gain_lines`.
+    """
+
+    def __init__(self, log_file: LogFile, sefd: dict[str, float] | None = None) -> None:
         self.log_f = log_file
         self.exp_name = log_file.experiment()
         self.station_name = log_file.station()
+        self.sefd = sefd
 
     # ----------------------------------------------------------------
     # RXG information lines
@@ -130,7 +137,7 @@ class AntabHeader:
             lo_lines_list: list[str] = []
             freq_list: list[float] = []
             for i, flo in enumerate(flo_array[setup]):
-                rxg_name = self.log_f.get_rxg_filename(flo)
+                rxg_name = " " if self.sefd else self.log_f.get_rxg_filename(flo)
                 if rxg_name.strip() == "":
                     lo_lines_list.append(f"!     LO={flo:.2f} MHz {pol_array[setup][i]}")
                 else:
@@ -157,7 +164,14 @@ class AntabHeader:
         dbbc_mode = self.log_f.dbbc_mode()
 
         lines = [f"! Amplitude calibration data for {self.station_name} in {self.exp_name}.",
-            "! For use with AIPS task ANTAB.", f"! Waveband(s) =  {wb_str}", "! RXG files used for each LO:"]
+            "! For use with AIPS task ANTAB.", f"! Waveband(s) =  {wb_str}"]
+        if self.sefd:
+            lines += ["! NOMINAL calibration: no RXG files used.",
+                f"! DPFU = median(Tsys) / SEFD per setup and polarization, with SEFD(R) = {self.sefd['R']:g} Jy, "
+                f"SEFD(L) = {self.sefd['L']:g} Jy.", "! Tcal taken from /caltemp/ lines in the log. "
+                "No gain curve available (POLY=1.0).", "! LOs used:"]
+        else:
+            lines.append("! RXG files used for each LO:")
         lines.extend(self.lo_lines())
         lines.append(f"! DBBC used in mode {dbbc_mode}")
 
@@ -167,11 +181,16 @@ class AntabHeader:
         return lines
 
     def write_antab_preamble(self, antab_file: str) -> list[dict[str, list[str]]]:
-        """Write the preamble to *antab_file* and return DPFU/POLY data."""
+        """Write the preamble to *antab_file* and return DPFU/POLY data.
+
+        In SEFD mode both returned dicts are empty; use :func:`sefd_gain_lines` once Tsys is final.
+        """
         with open(antab_file, "w") as fh:
             for line in self.first_lines():
                 fh.write(line + "\n")
 
+        if self.sefd:
+            return [{}, {}]
         return [self.dpfu_lines(), self.polyelev_line()]
 
     # ----------------------------------------------------------------
@@ -186,3 +205,89 @@ class AntabHeader:
             for freq_lo in flo_array[setup]:
                 bands.append(f"{3e8 / (freq_lo * 1e4):.1f}")
         return sorted(set(bands), key=float, reverse=True)
+
+
+def parse_sefd(text: str) -> dict[str, float]:
+    """Parse ``'350'`` or ``'350,400'`` (RCP,LCP) into ``{'R': Jy, 'L': Jy}``.
+
+    Raises ValueError if the format is wrong or any value is not a positive number.
+    """
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) not in (1, 2):
+        raise ValueError(f"expected one value or two comma-separated values (RCP,LCP), got {text!r}")
+    values = [float(p) for p in parts]
+    if any(not np.isfinite(v) or v <= 0 for v in values):
+        raise ValueError(f"SEFD values must be positive numbers, got {text!r}")
+    return {"R": values[0], "L": values[-1]}
+
+
+def _setup_columns(header_block: str) -> tuple[list[str], list[float], list[float]]:
+    """Return (pol letters, sky freqs MHz, bandwidths MHz) from the ``!Column`` lines of one header block.
+
+    Assumes the column line format written by ``LogFile._fill_header``:
+    ``!Column 1 = R1: ifA, bbc01, 1610.49 MHz , USB, BW= 32.00 MHz, Tcal=1.77 K``.
+    """
+    pols: list[str] = []
+    freqs: list[float] = []
+    bws: list[float] = []
+    for line in header_block.split("\n"):
+        tokens = line.split()
+        if line.startswith("!Column") and len(tokens) >= 12:
+            pols.append(tokens[3][0])
+            freqs.append(float(tokens[6]))
+            bws.append(float(tokens[11]))
+    return pols, freqs, bws
+
+
+def sefd_gain_lines(station: str, header: list[str], setup_time: list[list], tsys_t: np.ndarray, times: np.ndarray,
+                    sefd: dict[str, float]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Build nominal GAIN/POLY lines so that median(Tsys)/DPFU equals the given SEFD.
+
+    Parameters
+    ----------
+    station : two-letter station code.
+    header : per-setup header blocks (same order as *setup_time*), containing the ``!Column`` lines.
+    setup_time : ``[[unix_start, setup_name], ...]`` setup boundaries.
+    tsys_t : final Tsys matrix, shape ``(n_channels, n_times)``, in K.
+    times : Unix timestamps of the Tsys samples, shape ``(n_times,)``.
+    sefd : ``{'R': Jy, 'L': Jy}``.
+
+    Returns
+    -------
+    (dpfu_lines, poly_lines) keyed by setup name, in the format expected by ``writer.write_antab``.
+    One GAIN line per setup; DPFU is listed as R,L (or a single value if only one pol is present).
+    Setups that appear several times in *setup_time* pool all their samples.
+    """
+    samples: dict[str, dict[str, list[np.ndarray]]] = {}
+    columns: dict[str, tuple[list[str], list[float], list[float]]] = {}
+    for i, (t_start, setup) in enumerate(setup_time):
+        t_end = setup_time[i + 1][0] if i + 1 < len(setup_time) else np.inf
+        mask = (times >= t_start) & (times < t_end)
+        pols, freqs, bws = _setup_columns(header[i]) if i < len(header) else ([], [], [])
+        if not pols:
+            continue
+        columns.setdefault(setup, (pols, freqs, bws))
+        for ch_i, pol in enumerate(pols[:tsys_t.shape[0]]):
+            samples.setdefault(setup, {}).setdefault(pol, []).append(tsys_t[ch_i, mask])
+
+    dpfu_lines: dict[str, list[str]] = {}
+    poly_lines: dict[str, list[str]] = {}
+    for setup, per_pol in samples.items():
+        dpfu: list[str] = []
+        for pol in ("R", "L"):
+            vals = np.concatenate(per_pol.get(pol, [np.array([])]))
+            vals = vals[np.isfinite(vals) & (vals > 0)]
+            if len(vals) == 0:
+                continue
+            median_tsys = float(np.median(vals))
+            dpfu.append(f"{median_tsys / sefd[pol]:.6f}")
+            print(f"  SEFD mode: setup {setup} pol {pol}: median Tsys = {median_tsys:.1f} K, "
+                  f"SEFD = {sefd[pol]:g} Jy -> DPFU = {dpfu[-1]} K/Jy")
+        if not dpfu:
+            continue
+        _, freqs, bws = columns[setup]
+        f_min = min(f - abs(b) for f, b in zip(freqs, bws))
+        f_max = max(f + abs(b) for f, b in zip(freqs, bws))
+        dpfu_lines[setup] = [f"GAIN {station} ELEV DPFU={','.join(dpfu)} FREQ={f_min:.2f},{f_max:.2f}"]
+        poly_lines[setup] = ["POLY=1.0 /\n"]
+    return dpfu_lines, poly_lines

@@ -134,10 +134,9 @@ def get_tcal(lo_freq: float, pol: str, freq: float, station: str,
         if tcal != 0:
             break
 
-    if not file_ok:
-        print(f"tcal = {tcal:g}")
-        print("A suitable rxg_file was not found. "
-              'Maybe tcal is inside LOG file ("caltemp" tag)')
+    # Missing RXG files are reported once (as a fatal error) by the CLI, not per channel here.
+    if not file_ok and debug:
+        print(f"No RXG file found for LO={lo_freq:.2f} MHz, pol={pol}, freq={freq:.2f} MHz (tcal=0).")
 
     return tcal
 

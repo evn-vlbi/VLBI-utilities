@@ -14,7 +14,6 @@ from typing import Any
 from .rxg import RxgFile
 from .utils import get_rxg_dirs, get_tcal
 
-
 _EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 
 # Channel layout for each ``/form=`` type
@@ -62,10 +61,17 @@ class LogFile:
         rxg_dir: str | None = None,
         rxg_files: list[str] | None = None,
         debug: bool = False,
+        use_rxg: bool = True,
     ) -> None:
+        """Parse *filename*.
+
+        If *use_rxg* is False (SEFD mode) no RXG file is searched or read: Tcal starts at 0 and is only
+        set from ``/caltemp/`` lines in the log.
+        """
         self._rxg_dirs: list[str] = [rxg_dir] if rxg_dir is not None else get_rxg_dirs()
         self._rxg_files = rxg_files
         self._debug = debug
+        self._use_rxg = use_rxg
 
         self.logname = os.path.basename(filename)
         exp_station = self.logname.split(".")[0]
@@ -343,18 +349,27 @@ class LogFile:
                                 self._bw[setup][code] = float(bbc_info[i][3])
                                 self._bbc_code_list[setup].append(code)
                     else:
-                        if self._form_type != "geo2":
+                        # Determine which sidebands are configured for this
+                        # BBC's IF so we don't create phantom LSB channels in
+                        # USB-only experiments (or vice-versa).
+                        if_id = bbc_info[i][2]
+                        bands = self.band_array.get(setup, {}).get(if_id, [])
+                        has_lsb = not bands or any("lsb" in b for b in bands)
+                        has_usb = not bands or any("lsb" not in b for b in bands)
+
+                        if has_lsb and self._form_type != "geo2":
                             if self._form_type != "geo" or aux in [1, 8]:
                                 lcode = f"{hex(aux)[-1]}l"
                                 self._bbc_fq[setup][lcode] = float(bbc_info[i][1])
                                 self._which_if[setup][lcode] = bbc_info[i][2]
                                 self._bw[setup][lcode] = float(bbc_info[i][3])
                                 self._bbc_code_list[setup].append(lcode)
-                        ucode = f"{hex(aux)[-1]}u"
-                        self._bbc_fq[setup][ucode] = float(bbc_info[i][1])
-                        self._which_if[setup][ucode] = bbc_info[i][2]
-                        self._bw[setup][ucode] = float(bbc_info[i][3])
-                        self._bbc_code_list[setup].append(ucode)
+                        if has_usb:
+                            ucode = f"{hex(aux)[-1]}u"
+                            self._bbc_fq[setup][ucode] = float(bbc_info[i][1])
+                            self._which_if[setup][ucode] = bbc_info[i][2]
+                            self._bw[setup][ucode] = float(bbc_info[i][3])
+                            self._bbc_code_list[setup].append(ucode)
 
                 self._bbc_code_list[setup].sort()
 
@@ -373,8 +388,8 @@ class LogFile:
                     bbc_freq = self._bbc_fq[setup][ch]
 
                 fchan = lo_fq + bbc_freq - bw_val / 2.0
-                tcal_val = get_tcal(lo_fq, pol, fchan, self.station_name.lower(),
-                    rxg_dirs=self._rxg_dirs, rxg_files=self._rxg_files, debug=self._debug)
+                tcal_val = get_tcal(lo_fq, pol, fchan, self.station_name.lower(), rxg_dirs=self._rxg_dirs,
+                    rxg_files=self._rxg_files, debug=self._debug) if self._use_rxg else 0.0
 
                 if not self._caltemp_read.get(setup, False):
                     self._temp_dict[-1][ch] = [tcal_val]
@@ -936,6 +951,20 @@ class LogFile:
 
     def cal_mode(self) -> dict[str, str]:
         return self.cal_mode_name
+
+    def rxg_dirs(self) -> list[str]:
+        """Directories searched for RXG files."""
+        return self._rxg_dirs
+
+    def has_caltemp(self) -> bool:
+        """True if at least one setup got its Tcal values from ``/caltemp/`` lines in the log."""
+        return any(self._caltemp_read.values())
+
+    def missing_rxg_los(self) -> list[tuple[str, float, str]]:
+        """Return ``[(setup, lo_mhz, pol), ...]`` for every LO with no matching RXG file."""
+        flo_array, pol_array = self.lo_p_array()
+        return [(setup, flo, pol_array[setup][i]) for setup in sorted(flo_array)
+                for i, flo in enumerate(flo_array[setup]) if self.get_rxg_filename(flo).strip() == ""]
 
     def rxg_files_needed(self) -> dict[str, list[str]]:
         """RXG filenames required for each setup."""
