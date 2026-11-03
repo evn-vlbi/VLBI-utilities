@@ -66,7 +66,8 @@ def get_tcal(lo_freq: float, pol: str, freq: float, station: str,
     Returns
     -------
     float
-        Interpolated Tcal value (0.0 if not found).
+        Tcal linearly interpolated from the first matching RXG file's table; outside the table the closest
+        (end) value is used. 0.0 if no RXG file covers *lo_freq* or it has no entries for *pol*.
     """
     if rxg_dirs is None:
         rxg_dirs = get_rxg_dirs()
@@ -89,56 +90,58 @@ def get_tcal(lo_freq: float, pol: str, freq: float, station: str,
             except FileNotFoundError:
                 continue
 
-    tcal = 0.0
     file_ok = False
     st_code = station[0].upper() + station[1].lower()
 
     for filename in rxg_list:
         if st_code not in filename and not rxg_files:
             continue
-
-        with open(filename) as fh:
-            lines = fh.read().splitlines()
-
-        file_ok = False
-        for i, line in enumerate(lines):
-            if line[:5] == "range":
-                parts = line.split()
-                rmin, rmax = float(parts[1]), float(parts[2])
-                if rmin <= lo_freq <= rmax:
-                    file_ok = True
-                    if debug:
-                        print(f"Using {filename} RXG file")
-                else:
-                    break
-            elif line[:5] == "fixed":
-                fval = float(line.split()[1])
-                rmin, rmax = fval - 10, fval + 10
-                if rmin <= lo_freq <= rmax:
-                    file_ok = True
-                    if debug:
-                        print(f"Using {filename} RXG file")
-                else:
-                    break
-
-            if file_ok and i < len(lines) - 1:
-                if lines[i][:3] == pol and lines[i + 1][:3] == pol:
-                    f1 = float(lines[i].split()[1])
-                    f2 = float(lines[i + 1].split()[1])
-                    if f1 <= freq <= f2:
-                        t1 = float(lines[i].split()[2])
-                        t2 = float(lines[i + 1].split()[2])
-                        tcal = t1 + (freq - f1) * (t2 - t1) / (f2 - f1)
-                        break
-
-        if tcal != 0:
-            break
+        table = read_tcal_table(filename, lo_freq, pol)
+        if table is None:
+            continue
+        file_ok = True
+        if debug:
+            print(f"Using {filename} RXG file")
+        if not table:
+            continue
+        freqs, tcals = zip(*sorted(table))
+        if debug and not freqs[0] <= freq <= freqs[-1]:
+            print(f"  freq={freq:.2f} MHz ({pol}) outside the Tcal table [{freqs[0]:.2f}, {freqs[-1]:.2f}] MHz "
+                  f"of {filename}: using the closest table value.")
+        # np.interp clamps to the end values outside the table, i.e. the closest frequency.
+        return float(np.interp(freq, freqs, tcals))
 
     # Missing RXG files are reported once (as a fatal error) by the CLI, not per channel here.
-    if not file_ok and debug:
-        print(f"No RXG file found for LO={lo_freq:.2f} MHz, pol={pol}, freq={freq:.2f} MHz (tcal=0).")
+    if debug:
+        reason = "no Tcal entries for this polarization" if file_ok else "no RXG file found"
+        print(f"{reason}: LO={lo_freq:.2f} MHz, pol={pol}, freq={freq:.2f} MHz (tcal=0).")
+    return 0.0
 
-    return tcal
+
+def read_tcal_table(filename: str, lo_freq: float, pol: str) -> list[tuple[float, float]] | None:
+    """Read the ``(freq_mhz, tcal_k)`` Tcal-table entries of polarization *pol* from an RXG file.
+
+    Returns ``None`` if the file's LO ``range`` (or ``fixed`` LO +/- 10 MHz) does not contain *lo_freq*,
+    otherwise the (possibly empty) list of entries whose line starts with *pol* (e.g. ``'rcp'``).
+    """
+    with open(filename) as fh:
+        lines = fh.read().splitlines()
+
+    lo_ok: bool | None = None
+    table: list[tuple[float, float]] = []
+    for line in lines:
+        parts = line.split()
+        if lo_ok is None and line[:5] == "range":
+            lo_ok = float(parts[1]) <= lo_freq <= float(parts[2])
+        elif lo_ok is None and line[:5] == "fixed":
+            lo_ok = abs(float(parts[1]) - lo_freq) <= 10
+        elif line.startswith("end_tcal_table"):
+            break
+        elif lo_ok and line[:3] == pol and len(parts) >= 3:
+            table.append((float(parts[1]), float(parts[2])))
+        if lo_ok is False:
+            return None
+    return table if lo_ok else None
 
 
 def prefilter(tsys_matrix: np.ndarray, block: np.ndarray, max_limit: float = 10000.0) -> np.ndarray:

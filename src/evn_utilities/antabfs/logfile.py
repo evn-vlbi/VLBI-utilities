@@ -65,8 +65,10 @@ class LogFile:
     ) -> None:
         """Parse *filename*.
 
-        If *use_rxg* is False (SEFD mode) no RXG file is searched or read: Tcal starts at 0 and is only
-        set from ``/caltemp/`` lines in the log.
+        Invariant: Tcal never mixes sources. With *use_rxg* True it comes only from RXG files (0 where none
+        matches; the CLI refuses to write such a file). With *use_rxg* False (SEFD mode) Tcal = 1 for every
+        channel. ``/caltemp/`` lines are never used as Tcal; their presence is only reported by
+        :meth:`has_caltemp`.
         """
         self._rxg_dirs: list[str] = [rxg_dir] if rxg_dir is not None else get_rxg_dirs()
         self._rxg_files = rxg_files
@@ -374,7 +376,7 @@ class LogFile:
 
                 self._bbc_code_list[setup].sort()
 
-            # Compute Tcal for each BBC channel from RXG files
+            # Compute Tcal for each BBC channel from RXG files (Tcal = 1 in SEFD mode)
             for ch in self._bbc_code_list[setup]:
                 lo_fq = self.freq_lo_mhz[setup][self._which_if[setup][ch]][-1]
                 pol = self.pol_array[setup][self._which_if[setup][ch]][-1]
@@ -390,11 +392,9 @@ class LogFile:
 
                 fchan = lo_fq + bbc_freq - bw_val / 2.0
                 tcal_val = get_tcal(lo_fq, pol, fchan, self.station_name.lower(), rxg_dirs=self._rxg_dirs,
-                    rxg_files=self._rxg_files, debug=self._debug) if self._use_rxg else 0.0
-
-                if not self._caltemp_read.get(setup, False):
-                    self._temp_dict[-1][ch] = [tcal_val]
-                    self._setup_tcal[setup][ch] = [tcal_val]
+                    rxg_files=self._rxg_files, debug=self._debug) if self._use_rxg else 1.0
+                self._temp_dict[-1][ch] = [tcal_val]
+                self._setup_tcal[setup][ch] = [tcal_val]
 
         else:
             # Setup already configured — restore tcal from saved values
@@ -625,10 +625,16 @@ class LogFile:
 
             return True
 
+        # --- /caltemp/ lines: only recorded as present, never used as Tcal ---
+        if self._id_line(line, ["/caltemp/"]):
+            if self._current_setup is not None:
+                self._caltemp_read[self._current_setup] = True
+            return True
+
         # --- Single-mode temperature variables ---
         if self._current_setup in self.cal_mode_name:
             if self.cal_mode_name[self._current_setup] == "SINGLE":
-                aux_ref = ["/tpi/", "/tpical", "/tpdiff/", "/caltemp/"]
+                aux_ref = ["/tpi/", "/tpical", "/tpdiff/"]
                 temp_ind = self._id_line(line, aux_ref)
                 if temp_ind != 0:
                     temp_ind += 1
@@ -639,14 +645,11 @@ class LogFile:
                     self._store_tsys_from_log(line)
                     return True
             else:
-                if self._id_line(line, ["/caltemp/"]):
-                    self._get_temp_line(line, len(self._temp_dict))
-                    return True
                 if self._id_line(line, ["#tpicd#tsys/"]):
                     self._store_tsys_from_log(line)
                     return True
         else:
-            aux_ref = ["/tpi/", "/tpical", "/caltemp/"]
+            aux_ref = ["/tpi/", "/tpical"]
             temp_ind = self._id_line(line, aux_ref)
             if temp_ind != 0:
                 self._get_temp_line(line, temp_ind)
@@ -828,11 +831,6 @@ class LogFile:
 
         self._temp_dict[temp_ind - 1] = aux_dict
 
-        if temp_ind == len(self._temp_dict):
-            if self._current_setup:
-                self._setup_tcal[self._current_setup] = self._temp_dict[-1]
-                self._caltemp_read[self._current_setup] = True
-
     # ----------------------------------------------------------------
     # Header reading
     # ----------------------------------------------------------------
@@ -966,8 +964,13 @@ class LogFile:
         return self._rxg_dirs
 
     def has_caltemp(self) -> bool:
-        """True if at least one setup got its Tcal values from ``/caltemp/`` lines in the log."""
+        """True if the log contains ``/caltemp/`` lines (informational only; they are never used as Tcal)."""
         return any(self._caltemp_read.values())
+
+    def missing_tcal_channels(self) -> list[tuple[str, str]]:
+        """Return ``[(setup, bbc_channel), ...]`` whose Tcal is 0, i.e. no RXG Tcal entry could be applied."""
+        return [(setup, ch) for setup in sorted(self._setup_tcal)
+                for ch, vals in sorted(self._setup_tcal[setup].items()) if vals and vals[0] == 0]
 
     def missing_rxg_los(self) -> list[tuple[str, float, str]]:
         """Return ``[(setup, lo_mhz, pol), ...]`` for every LO with no matching RXG file."""

@@ -41,9 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated list of RXG filenames to use (e.g. -f Ys_6cm.rxg,Ys_13cm.rxg).")
     parser.add_argument("--sefd", default=None, metavar="JY[,JY]",
         help="Nominal mode: SEFD (Jy) of the antenna at the observed band, either one value for both "
-             "polarizations or RCP,LCP (e.g. --sefd 350 or --sefd 340,360). No RXG file is searched or read: "
-             "Tsys uses Tcal from the /caltemp/ lines of the log, and DPFU is set to median(Tsys)/SEFD "
-             "with no gain curve (POLY=1.0). Cannot be combined with -r/-f.")
+             "polarizations or RCP,LCP (e.g. --sefd 350 or --sefd 340,360). No RXG file is searched or read and "
+             "/caltemp/ lines are ignored: Tsys is computed with Tcal = 1 for every channel, and DPFU is set to "
+             "median(Tsys)/SEFD with no gain curve (POLY=1.0). Cannot be combined with -r/-f.")
     parser.add_argument("-o", "--output", default=None,
         help="Output ANTAB filename (default: <experiment><station>.antabfs).")
     parser.add_argument("-i", "--interactive", action="store_true", default=False,
@@ -99,22 +99,13 @@ def main(argv: list[str] | None = None) -> None:
     # --- Parse the log file ---
     print(f"Reading log file: {log_path}")
     if sefd:
-        print(f"SEFD mode: SEFD(R) = {sefd['R']:g} Jy, SEFD(L) = {sefd['L']:g} Jy. RXG files are not used.")
+        print(f"SEFD mode: SEFD(R) = {sefd['R']:g} Jy, SEFD(L) = {sefd['L']:g} Jy. "
+              "RXG files and /caltemp/ are not used (Tcal = 1).")
     rxg_files = args.rxg_files.split(",") if args.rxg_files else None
     log_f = LogFile(log_path, rxg_dir=args.rxg_dir, rxg_files=rxg_files, debug=args.debug, use_rxg=sefd is None)
 
-    # --- Calibration source checks ---
-    # DPFU and gain curve exist only in RXG files, never in the log: without them the ANTAB file is unusable.
     if sefd is None:
-        missing = log_f.missing_rxg_los()
-        if missing:
-            los = "\n".join(f"    setup {s}: LO={lo:.2f} MHz {pol}" for s, lo, pol in missing)
-            _fatal(f"no RXG file found for the following LO(s):\n{los}\n"
-                   f"  Searched directories: {', '.join(log_f.rxg_dirs())}"
-                   + (f" (files: {', '.join(rxg_files)})" if rxg_files else "") + "\n"
-                   "  Provide them with -r/--rxg-dir or -f/--rxg-files, or use --sefd for a nominal ANTAB file.")
-    elif not log_f.has_caltemp():
-        _fatal("--sefd needs Tcal values from /caltemp/ lines in the log file, but none were found.")
+        _check_rxg(log_f, rxg_files, user_rxg=bool(args.rxg_dir or args.rxg_files))
 
     header, index_line, scan_line, tsys_data, block_data, time_data, tsys_log, setup_time = \
         log_f.get_log_data()
@@ -309,6 +300,34 @@ def _calib_info(log_f: LogFile, sefd: dict[str, float] | None, setup: str) -> li
     paths = log_f.rxg_files_needed().get(setup, [])
     names = sorted({os.path.basename(p) for p in paths if p.strip()})
     return [f"RXG file(s), setup {setup}:"] + names if names else [f"No RXG file for setup {setup}."]
+
+
+def _check_rxg(log_f: LogFile, rxg_files: list[str] | None, user_rxg: bool) -> None:
+    """Exit with an error unless every LO has an RXG file and every channel got an RXG Tcal.
+
+    Invariant: Tcal, DPFU and gain curve all come from RXG files; /caltemp/ lines are never mixed in or used as
+    a fallback (DPFU and gain curve exist only in RXG files). Without -f/-r (*user_rxg* False) a missing RXG is
+    first reported as a warning, together with whether the log has /caltemp/ lines, before the final error.
+    """
+    missing = log_f.missing_rxg_los()
+    searched = f"  Searched directories: {', '.join(log_f.rxg_dirs())}" + \
+        (f" (files: {', '.join(rxg_files)})" if rxg_files else "")
+    if missing:
+        los = "\n".join(f"    setup {s}: LO={lo:.2f} MHz {pol}" for s, lo, pol in missing)
+        if user_rxg:
+            _fatal(f"the RXG file(s) given with -r/-f do not cover the following LO(s):\n{los}\n{searched}")
+        print(f"Warning: no RXG file found for the following LO(s):\n{los}\n{searched}", file=sys.stderr)
+        if log_f.has_caltemp():
+            print("Warning: the log has /caltemp/ lines, but they only give Tcal: DPFU and the gain curve exist only "
+                  "in RXG files.", file=sys.stderr)
+            _fatal("RXG file not found. Provide it with -r/--rxg-dir or -f/--rxg-files, "
+                   "or use --sefd for a nominal ANTAB file.")
+        _fatal("RXG file not found and no /caltemp/ lines in the log. Provide the RXG file with -r/--rxg-dir or "
+               "-f/--rxg-files, or use --sefd for a nominal ANTAB file.")
+    no_tcal = log_f.missing_tcal_channels()
+    if no_tcal:
+        chans = ", ".join(f"setup {s} {ch}" for s, ch in no_tcal)
+        _fatal(f"the RXG file(s) have no Tcal table entries for the polarization of: {chans}.\n{searched}")
 
 
 def _fatal(message: str) -> None:

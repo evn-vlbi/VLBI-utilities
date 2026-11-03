@@ -168,7 +168,8 @@ class AntabHeader:
         if self.sefd:
             lines += ["! NOMINAL calibration: no RXG files used.",
                 f"! DPFU = median(Tsys) / SEFD per setup and polarization, with SEFD(R) = {self.sefd['R']:g} Jy, "
-                f"SEFD(L) = {self.sefd['L']:g} Jy.", "! Tcal taken from /caltemp/ lines in the log. "
+                f"SEFD(L) = {self.sefd['L']:g} Jy.",
+                "! Tcal = 1 for all channels (Tsys in Tcal units, scaled to the SEFD by DPFU). "
                 "No gain curve available (POLY=1.0).", "! LOs used:"]
         else:
             lines.append("! RXG files used for each LO:")
