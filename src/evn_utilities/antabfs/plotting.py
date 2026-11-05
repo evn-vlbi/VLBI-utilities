@@ -66,6 +66,20 @@ from .utils import compute_outliers, modify_data  # noqa: E402
 plt.rcParams["text.usetex"] = False
 plt.rcParams["text.parse_math"] = False
 
+class _ResizeSafeTextBox(TextBox):
+    """TextBox that survives figure resizes on matplotlib 3.11.0.
+
+    matplotlib 3.11.0 wraps ``TextBox._resize`` with ``_call_with_reparented_event``, which reads
+    ``event.inaxes``; a ``ResizeEvent`` has no such attribute, so every window resize raised
+    ``AttributeError``. This override keeps the upstream behaviour (stop typing) without touching the event.
+    Inputs/outputs are identical to ``matplotlib.widgets.TextBox``.
+    """
+
+    def _resize(self, event) -> None:
+        """Resize callback: end any in-progress text entry. ``event`` (ResizeEvent) is ignored."""
+        self.stop_typing()
+
+
 _UTC = datetime.timezone.utc
 _DATE_FMT = mdates.DateFormatter("%j %H:%M")
 
@@ -390,12 +404,12 @@ class MultiChannelSelection:
         hint("savgol/median: scan span only.")
 
         label("Smooth window (0=scan)")
-        self._box_window = TextBox(widget_axes(0.04), "", initial=str(self.smooth_window))
+        self._box_window = _ResizeSafeTextBox(widget_axes(0.04), "", initial=str(self.smooth_window))
         self._box_window.on_submit(self._on_window)
         hint("Enter to apply; used by median.")
 
         label("Flag threshold (sigma)")
-        self._box_sigma = TextBox(widget_axes(0.04), "", initial=f"{self.sigma:g}")
+        self._box_sigma = _ResizeSafeTextBox(widget_axes(0.04), "", initial=f"{self.sigma:g}")
         self._box_sigma.on_submit(self._on_sigma)
         hint("Enter to apply; re-runs auto-flag.")
 

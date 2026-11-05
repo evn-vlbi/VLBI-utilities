@@ -46,10 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
              "median(Tsys)/SEFD with no gain curve (POLY=1.0). Cannot be combined with -r/-f.")
     parser.add_argument("-o", "--output", default=None,
         help="Output ANTAB filename (default: <experiment><station>.antabfs).")
-    parser.add_argument("-i", "--interactive", action="store_true", default=False,
-        help="Open the interactive multi-channel editor to flag outliers and choose the smoothing method/window "
-             "(initialised from --smooth-method, --smooth-window and --no-smooth) before the file is written. "
-             "By default antabfs runs non-interactively (auto-smooth, no window).")
+    parser.add_argument("-i", "--non-interactive", action="store_true", default=False,
+        help="Run in a non-interactive mode, so it auto-smooths and does not open any window..")
     parser.add_argument("--no-smooth", action="store_true", default=False,
         help="Disable Tsys trend smoothing (smoothing is ON by default). Outliers are still "
              "rejected per scan and replaced with the local median.")
@@ -161,7 +159,7 @@ def main(argv: list[str] | None = None) -> None:
 
         # Optional interactive editing: the multi-channel editor lets the user
         # flag outliers and replaces them in-place inside tsys_t.  Off by default.
-        if args.interactive:
+        if not args.non_interactive:
             setup_name = setup_time[setup_idx][1] if setup_idx < len(setup_time) else ""
             labels = _channel_labels(header[setup_idx]) if setup_idx < len(header) else []
             labels += [f"ch{i + 1}" for i in range(len(labels), n_channels)]
@@ -187,7 +185,7 @@ def main(argv: list[str] | None = None) -> None:
                 block=block_part, sigma=sigma, window=smooth_window, method=smooth_method, span=smooth_span,
                 scan_sources=scan_sources, max_gap=max_gap, report=True,
                 labels=_channel_labels(header[setup_idx]) if setup_idx < len(header) else None)
-        elif not args.interactive:
+        elif args.non_interactive:
             # --no-smooth without the editor: still reject obvious outliers and
             # replace them with the local median so the file isn't full of spikes.
             for ch_i in range(n_channels):
