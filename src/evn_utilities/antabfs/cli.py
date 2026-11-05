@@ -15,10 +15,11 @@ import sys
 import numpy as np
 
 from . import __version__ as version
+from .clean import valid_mask
 from .header import AntabHeader, parse_sefd, sefd_gain_lines
 from .logfile import LogFile
 from .plotting import MultiChannelSelection
-from .smoothing import SMOOTH_SPANS, smooth_tsys_matrix
+from .smoothing import SMOOTH_METHOD_NAMES, SMOOTH_SPANS, smooth_tsys_matrix
 from .utils import compute_outliers, prefilter
 from .writer import write_antab
 
@@ -54,19 +55,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plot", action="store_true", default=False,
         help="Show a read-only plot of the smoothed Tsys result before writing the file.")
     parser.add_argument("--sigma", type=float, default=3.0,
-        help="Sigma-clipping threshold for smoothing (default: %(default)s).")
+        help="Outlier threshold, in units of the local clean noise for --smooth-method clean, of the MAD "
+             "otherwise (default: %(default)s).")
     parser.add_argument("--smooth-span", choices=list(SMOOTH_SPANS), default="source",
-        help="source: smooth Tsys across all scans of the same source (never mixing sources) with a smoothing "
-             "spline through the per-scan robust medians; scan: smooth each scan on its own with "
-             "--smooth-method/--smooth-window (default: %(default)s).")
+        help="With --smooth-method clean: source lets a scan without usable data borrow its level from "
+             "same-source scans, scan uses each scan alone. With savgol/median: source fits a smoothing spline "
+             "through the per-scan robust medians of each source (method/window unused), scan smooths each "
+             "scan on its own (default: %(default)s).")
     parser.add_argument("--source-gap", type=float, default=60.0, metavar="MIN",
         help="With --smooth-span source: scans of the same source more than MIN minutes apart are smoothed "
              "as separate segments (default: %(default)s).")
     parser.add_argument("--smooth-window", type=int, default=0,
-        help="Per-scan smoothing window size, --smooth-span scan with median only (0 = the full length of "
-             "each scan, default: %(default)s).")
-    parser.add_argument("--smooth-method", choices=["savgol", "median"], default="median",
-        help="Per-scan smoothing method, --smooth-span scan only: savgol or median (default: %(default)s).")
+        help="clean: local-statistics window in seconds (0 = 60 s). median with --smooth-span scan: window in "
+             "samples (0 = the full length of each scan). Unused otherwise (default: %(default)s).")
+    parser.add_argument("--smooth-method", choices=list(SMOOTH_METHOD_NAMES), default="clean",
+        help="clean: replace outliers by a robust local baseline and keep every other sample as measured "
+             "(no flattening). savgol/median: replace the data by a fitted trend (straight line / rolling median "
+             "per scan with --smooth-span scan) (default: %(default)s).")
     parser.add_argument("--vlbeer", action="store_true", default=False,
         help="Upload the output ANTAB file to vlbeer.ira.inaf.it (as user 'evn') "
              "into vlbi_arch/mmmYY/ where mmmYY is the observation month and year.")
@@ -116,7 +121,11 @@ def main(argv: list[str] | None = None) -> None:
     antab_header = AntabHeader(log_f, sefd=sefd)
 
     # --- Prepare Tsys matrix ---
-    tsys_t = prefilter(np.array(tsys_data, dtype=float).T, np.array(block_data))
+    # missing[ch, i]: not a measurement (<= 0, >= 10000 K or NaN in the log).  prefilter fills these with a scan
+    # mean for display/writing; the smoothing pass must see them as NaN, or the fills act as fake clean data.
+    raw_tsys = np.array(tsys_data, dtype=float).T
+    missing = ~valid_mask(raw_tsys)
+    tsys_t = prefilter(raw_tsys, np.array(block_data))
     block_array = np.array(block_data)
     time_array = np.array(time_data)
 
@@ -167,24 +176,30 @@ def main(argv: list[str] | None = None) -> None:
                 editor = MultiChannelSelection(tsys_t[:, i_start:i_end], time_part, block_part, labels[:n_channels],
                     sigma=sigma, part_num=part_num, smooth_method=smooth_method, smooth_window=smooth_window,
                     smooth_span=smooth_span, scan_sources=scan_sources, max_gap=max_gap,
-                    calib_info=_calib_info(log_f, sefd, setup_name))
+                    calib_info=_calib_info(log_f, sefd, setup_name), missing=missing[:, i_start:i_end])
             except KeyboardInterrupt:
                 _fatal("aborted by user (Ctrl+C). No ANTAB file was written.")
+            # Editor flags (auto + manual) were written back as local-median fills: treat them as missing too.
+            missing[:, i_start:i_end] |= np.vstack(editor.flagged)
             smooth_method, smooth_window, sigma = editor.smooth_method, editor.smooth_window, editor.sigma
             smooth_span = editor.smooth_span
             print(f"  Editor closed (part {part_num + 1}): smooth method = {smooth_method}, span = {smooth_span}, "
                   f"window = {smooth_window}, sigma = {sigma:g}")
 
-        # Smoothing pass (ON by default): rejects outliers and fits a smooth Tsys trend, per scan or across the
-        # scans of each source.  Runs after interactive editing too, so the written file always follows a clean
-        # trend instead of raw per-scan scatter.  Parts (setups) are smoothed separately: sources never span setups.
+        # Smoothing pass (ON by default): "clean" replaces outliers by a robust baseline and keeps the other
+        # samples; savgol/median fit a smooth trend per scan or across the scans of each source.  Runs after
+        # interactive editing too.  Missing samples (invalid in the log, editor flags) are passed as NaN.  Parts
+        # (setups) are smoothed separately: sources never span setups.
         if smooth_method != "none":
             print(f"  Smoothing part {part_num + 1} ({n_channels} channels, {i_end - i_start} samples, "
                   f"span = {smooth_span})...")
-            tsys_t[:, i_start:i_end] = smooth_tsys_matrix(tsys_t[:, i_start:i_end], times=time_part,
+            part_in = tsys_t[:, i_start:i_end]
+            smoothed = smooth_tsys_matrix(np.where(missing[:, i_start:i_end], np.nan, part_in), times=time_part,
                 block=block_part, sigma=sigma, window=smooth_window, method=smooth_method, span=smooth_span,
                 scan_sources=scan_sources, max_gap=max_gap, report=True,
                 labels=_channel_labels(header[setup_idx]) if setup_idx < len(header) else None)
+            # No estimate (e.g. a scan with no valid sample): keep the prefiltered / edited value.
+            tsys_t[:, i_start:i_end] = np.where(np.isfinite(smoothed), smoothed, part_in)
         elif args.non_interactive:
             # --no-smooth without the editor: still reject obvious outliers and
             # replace them with the local median so the file isn't full of spikes.

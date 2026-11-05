@@ -2,7 +2,14 @@
 
 Provides sigma-clipping and robust smoothing that is resilient to large
 outliers commonly found in raw Tsys measurements.  Enabled by default in
-non-interactive mode.  Two spans are available:
+non-interactive mode.
+
+``method="clean"`` (default in the CLI) does not replace the data by a model: outliers are replaced by a robust
+local baseline and every other sample is kept as measured (see :mod:`.clean`).  ``span`` only decides whether a
+scan without usable data of its own may borrow its level from same-source scans (``"source"``) or not
+(``"scan"``); ``window`` is the local-statistics window in seconds (0 = 60 s).
+
+The methods below (``"savgol"``, ``"median"``) replace the data by a fitted trend.  Two spans are available:
 
 ``span="scan"`` — every scan block is processed on its own and no
 information crosses a scan boundary.  Strategy, per scan:
@@ -49,8 +56,11 @@ import numpy as np
 from scipy.interpolate import make_smoothing_spline
 from scipy.ndimage import median_filter
 
+from .clean import clean_tsys_channel
+
 _MAD_SCALE = 1.4826
 SMOOTH_SPANS = ("scan", "source")
+SMOOTH_METHOD_NAMES = ("clean", "savgol", "median")
 _MIN_SPLINE_POINTS = 5  # make_smoothing_spline needs at least 5 points; fewer -> straight line / flat level
 _MIN_SCATTER_FRAC = 0.005  # scan-median scatter floor, as a fraction of the Tsys level (0.25 K at 50 K)
 _LOG_LAM_MIN, _LOG_LAM_MAX, _BISECT_STEPS = -8.0, 8.0, 16  # smoothing-parameter search (x in hours)
@@ -324,7 +334,7 @@ def smooth_tsys_channel(values: np.ndarray, times: np.ndarray | None = None,
                         block: np.ndarray | None = None, sigma: float = 3.0,
                         window: int = 0, method: str = "savgol", span: str = "scan",
                         segments: list[list[np.ndarray]] | None = None,
-                        fallbacks: list[int] | None = None) -> np.ndarray:
+                        fallbacks: list[int] | None = None, stats: dict | None = None) -> np.ndarray:
     """Smooth a single BBC-channel Tsys time series.
 
     Parameters
@@ -339,16 +349,20 @@ def smooth_tsys_channel(values: np.ndarray, times: np.ndarray | None = None,
     sigma : float
         Clipping threshold in MAD-scaled sigma units.
     window : int
-        Smoothing window size (0 = the full length of each scan); ``span="scan"`` with ``"median"`` only.
+        ``"clean"``: local-statistics window in seconds (0 = 60 s).  ``"median"`` with ``span="scan"``: window in
+        samples (0 = the full length of each scan).  Unused otherwise.
     method : str
-        ``"savgol"`` for a per-scan straight line, ``"median"`` for rolling median (``span="scan"`` only).
+        ``"clean"`` (outliers -> baseline, other samples kept; any span), ``"savgol"`` for a per-scan straight line,
+        ``"median"`` for rolling median (``"savgol"``/``"median"``: ``span="scan"`` only).
     span : str
-        ``"scan"`` (each scan alone) or ``"source"`` (smooth across same-source scans, see module docstring).
+        ``"scan"`` (each scan alone) or ``"source"`` (use same-source scans, see module docstring).
     segments : list or None
         Output of :func:`source_segments`; required for ``span="source"``.
     fallbacks : list or None
         If given, the indices (into *segments*) of segments that were smoothed per scan instead (span="source",
         Tsys not smooth for that source) are appended to it.
+    stats : dict or None
+        ``method="clean"`` only: filled with the cleaning statistics (see :func:`.clean.clean_tsys_channel`).
 
     Returns
     -------
@@ -360,7 +374,14 @@ def smooth_tsys_channel(values: np.ndarray, times: np.ndarray | None = None,
     if n < 3:
         return y
 
-    if span == "source":
+    if method == "clean":
+        if times is None:
+            raise ValueError('method="clean" needs times')
+        blk = np.zeros(n, dtype=int) if block is None else np.asarray(block)
+        out = clean_tsys_channel(y, times, blk, sigma=sigma, window_s=float(window),
+                                 segments=segments if span == "source" else None, stats=stats)
+        out = np.where(np.isfinite(out), out, y)
+    elif span == "source":
         if times is None or segments is None:
             raise ValueError('span="source" needs times and segments')
         t = np.asarray(times, dtype=float)
@@ -408,15 +429,19 @@ def smooth_tsys_matrix(tsys_matrix: np.ndarray, times: np.ndarray | None = None,
     labels : list or None
         Channel labels used in the report (default: ``ch1``, ``ch2``...).
     report : bool
-        Print which sources/channels fell back to per-scan smoothing (``span="source"``).
+        ``method="clean"``: print the per-channel cleaning statistics.  Otherwise print which sources/channels
+        fell back to per-scan smoothing (``span="source"``).
 
     Returns
     -------
     ndarray
-        Smoothed matrix with the same shape.
+        Smoothed matrix with the same shape.  NaN inputs (missing samples) are never used by the fits; where no
+        estimate exists the input value (possibly NaN) is returned.
     """
     if span not in SMOOTH_SPANS:
         raise ValueError(f"span must be one of {SMOOTH_SPANS}, got {span!r}")
+    if method not in SMOOTH_METHOD_NAMES:
+        raise ValueError(f"method must be one of {SMOOTH_METHOD_NAMES}, got {method!r}")
     segments = None
     if span == "source":
         if times is None or block is None:
@@ -424,14 +449,28 @@ def smooth_tsys_matrix(tsys_matrix: np.ndarray, times: np.ndarray | None = None,
         segments = source_segments(times, block, scan_sources or {}, max_gap)
     n_ch = tsys_matrix.shape[0]
     fallbacks: list[list[int]] = [[] for _ in range(n_ch)]
+    stats: list[dict] = [{} for _ in range(n_ch)]
     _fn = partial(smooth_tsys_channel, times=times, block=block, sigma=sigma, window=window, method=method,
                   span=span, segments=segments)
-    max_workers = min(n_ch, os.cpu_count() or 1)
+    max_workers = max(1, min(n_ch, os.cpu_count() or 1))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        rows = list(pool.map(lambda i: _fn(tsys_matrix[i], fallbacks=fallbacks[i]), range(n_ch)))
-    if report and segments is not None:
+        rows = list(pool.map(lambda i: _fn(tsys_matrix[i], fallbacks=fallbacks[i], stats=stats[i]), range(n_ch)))
+    if report and method == "clean":
+        _report_clean(stats, tsys_matrix.shape[1], labels)
+    elif report and segments is not None:
         _report_fallbacks(segments, fallbacks, np.asarray(block), scan_sources or {}, labels)
     return np.vstack(rows)
+
+
+def _report_clean(stats: list[dict], n_samples: int, labels: list[str] | None) -> None:
+    """Print one line per channel: clean relative noise, % of samples clipped, and how each scan got its level."""
+    for ch_i, st in enumerate(stats):
+        if not st:
+            continue
+        label = labels[ch_i] if labels and ch_i < len(labels) else f"ch{ch_i + 1}"
+        kinds = ", ".join(f"{k} {n}" for k, n in st["kinds"].items() if n)
+        print(f"  Clean {label}: clean noise {100 * st['rel_clean']:.1f}%, outliers replaced "
+              f"{100 * st['n_clipped'] / max(n_samples, 1):.1f}%, scan levels from: {kinds}")
 
 
 def _report_fallbacks(segments: list[list[np.ndarray]], fallbacks: list[list[int]], block: np.ndarray,

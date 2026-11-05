@@ -11,20 +11,27 @@ The user can:
 * Press **Ctrl+Z** to undo the last flag / unflag action.
 * Press **Escape** to cancel the current selection.
 * The y axis follows the *unflagged* data: after a flag / unflag / undo it is re-fitted when a limit moves by
-  more than 10% of the current span (e.g. flagging a large spike zooms in on the remaining data).
+  more than 10% of the current span (e.g. flagging a large spike zooms in on the remaining data).  Run smoothing
+  keeps the current axis limits, so the change is easy to see.
 * Use the control panel next to the legend:
   - **Unflag all**: restore every flagged value (undoable).
-  - **Smooth span**: scan / source (same as ``--smooth-span``); "source" smooths across all scans of the same
+  - **Smooth span**: scan / source (same as ``--smooth-span``).  clean: "source" lets a scan without usable data
+    borrow its level from same-source scans.  savgol/median: "source" smooths across all scans of the same
     source (spline through scan medians), never mixing sources.
-  - **Smooth method**: savgol / median / none (same as ``--smooth-method`` / ``--no-smooth``); savgol and median
-    only matter for the "scan" span, "none" disables smoothing for both.
-  - **Smooth window**: integer >= 0, 0 = the whole scan (same as ``--smooth-window``).
+  - **Smooth method**: clean / savgol / median / none (same as ``--smooth-method`` / ``--no-smooth``); clean
+    replaces outliers by a robust baseline and keeps every other sample; savgol and median only matter for the
+    "scan" span; "none" disables smoothing.
+  - **Smooth window**: integer >= 0 (same as ``--smooth-window``): clean: seconds (0 = 60 s); median: samples
+    (0 = the whole scan).
   - **Flag threshold (sigma)**: number > 0 (same as ``--sigma``); re-runs the automatic flagging, keeping the
     manual flags, and is also used for smoothing.  Undoable.
   - **Run smoothing**: replace the data with the smoothed trend of the current *unflagged* values (flags kept).
     Each click smooths the data as it is then, so flag more and click again to smooth the new set.  Undoable.
-  The thin line on each channel previews the smoothing (computed from unflagged values only).  The CLI still
-  smooths once more with the final settings when the file is written.
+  Changing span / method / window does nothing visible: smoothing is only applied by **Run smoothing**.  To
+  keep the window responsive, the smoothing for the current settings and data is pre-computed in a background
+  worker process; Run applies it at once if it is ready, otherwise as soon as it arrives (the window stays
+  usable; changing settings or flags meanwhile discards that result).  The CLI still smooths once more with the
+  final settings when the file is written.
 * **Close the window** to accept the result and continue; Ctrl+C in the terminal aborts.
 """
 
@@ -32,7 +39,11 @@ from __future__ import annotations
 
 import colorsys
 import datetime
+import multiprocessing
 import re
+from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import wait as futures_wait
+from concurrent.futures.process import BrokenProcessPool
 
 import matplotlib
 
@@ -85,6 +96,8 @@ _DATE_FMT = mdates.DateFormatter("%j %H:%M")
 
 # Visibility states for legend entries
 _ALPHA = {True: 1.0, False: 0.25}
+# Opacity of the original values of flagged samples (the "x" markers).
+_FLAGGED_ALPHA = 0.1
 
 # Special group-toggle labels in the legend
 _GROUP_ALL = "all"
@@ -97,7 +110,7 @@ _LCP_RE = re.compile(r"\bL\d+\b", re.IGNORECASE)
 _RCP_RE = re.compile(r"\bR\d+\b", re.IGNORECASE)
 
 # Smoothing choices shown in the control panel; "none" is the GUI equivalent of --no-smooth.
-SMOOTH_METHODS = ("savgol", "median", "none")
+SMOOTH_METHODS = ("clean", "savgol", "median", "none")
 
 _INSTRUCTIONS = ("Define area with mouse.", 'Click or "D" to flag data.', "Ctrl+Z to undo.",
                  '"x" points are flagged values.', "Close window to save file.", "Ctrl+C in the terminal to abort.")
@@ -115,6 +128,8 @@ _YLIM_REL_CHANGE = 0.10
 _HANDLE_SIZE = 4
 _HANDLE_GRAB_PX = 4
 _CLICK_MAX_PX = 3
+# While a requested smoothing is still being computed in the worker, poll for it every this many milliseconds.
+_POLL_MS = 150
 
 
 def _color(index: int) -> str:
@@ -177,6 +192,12 @@ class MultiChannelSelection:
         Seconds; same-source scans further apart are smoothed separately (``"source"`` span).
     calib_info : list[str] or None
         Calibration source lines shown in the right-hand panel, one per line (RXG file names or assumed SEFD).
+    missing : ndarray or None, shape (n_channels, n_times)
+        True for samples that are not measurements (e.g. values the prefilter filled in); smoothing treats them
+        as NaN.  They are not drawn differently and cannot be unflagged.
+    background : bool
+        Pre-compute the smoothing in a worker process after every settings / data change (default).  If False,
+        nothing is pre-computed and Run smoothing computes synchronously (used by tests).
     show : bool
         If False the figure is built but ``plt.show()`` is not called (used by tests).
 
@@ -190,7 +211,8 @@ class MultiChannelSelection:
     def __init__(self, tsys_matrix: np.ndarray, time: np.ndarray, block: np.ndarray, bbc_labels: list[str],
                  sigma: float = 3.0, part_num: int = 0, smooth_method: str = "savgol", smooth_window: int = 0,
                  smooth_span: str = "scan", scan_sources: dict[int, str] | None = None, max_gap: float = 3600.0,
-                 calib_info: list[str] | None = None, show: bool = True) -> None:
+                 calib_info: list[str] | None = None, missing: np.ndarray | None = None,
+                 background: bool = True, show: bool = True) -> None:
         calib_info = calib_info or []
         if smooth_method not in SMOOTH_METHODS:
             raise ValueError(f"smooth_method must be one of {SMOOTH_METHODS}, got {smooth_method!r}")
@@ -206,6 +228,7 @@ class MultiChannelSelection:
         self.x = np.asarray(time, dtype=float)
         self.n_ch = tsys_matrix.shape[0]
         self.labels = bbc_labels[: self.n_ch]
+        self.missing = np.zeros(tsys_matrix.shape, dtype=bool) if missing is None else np.asarray(missing, dtype=bool)
 
         # Save originals before any replacement so we can show flagged points
         # at their original values with reduced opacity.
@@ -214,13 +237,21 @@ class MultiChannelSelection:
         self.flagged: list[np.ndarray] = [np.zeros(len(self.x), dtype=bool) for _ in range(self.n_ch)]
         self.manual: list[np.ndarray] = [np.zeros(len(self.x), dtype=bool) for _ in range(self.n_ch)]
 
+        # Background smoothing state (see _schedule_precompute / _run_smoothing).  _data_version changes with
+        # every edit of y/flags; a result is only applied if its key still matches the current settings + data.
+        self._background = background
+        self._executor: ProcessPoolExecutor | None = None
+        self._pending: tuple[tuple, Future, np.ndarray] | None = None   # (key, future, input values)
+        self._requested_key: tuple | None = None                        # Run pressed, result not yet applied
+        self._poll_timer = None
+        self._data_version = 0
+
         # --- Auto-replace outliers before display ---
         for ch_i in range(self.n_ch):
             self._auto_clean_channel(ch_i)
 
         # --- Build figure ---
         self._x_dt = _unix_to_dt(self.x)
-        self._x_num_breaks, self._break_pos = self._scan_break_layout()
         self.fig, self.ax = plt.subplots(figsize=(16, 9))
         self.fig.suptitle(f"Interactive Tsys Editor - Part {part_num + 1}")
         self.ax.set_xlabel("Time (UT)")
@@ -233,7 +264,6 @@ class MultiChannelSelection:
         self._build_legend()
         self._build_controls()
         self._build_info_text(calib_info)
-        self._update_smooth_lines()
 
         # Undo stack: each entry is a snapshot of (y_copies, flagged_copies, manual_copies, sigma)
         self._undo_stack: list[tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray], float]] = []
@@ -256,13 +286,16 @@ class MultiChannelSelection:
         self.fig.canvas.mpl_connect("key_press_event", self._on_key)
         self.fig.canvas.mpl_connect("button_press_event", self._on_button_press)
         self.fig.canvas.mpl_connect("button_release_event", self._on_button_release)
+        self.fig.canvas.mpl_connect("close_event", lambda _event: self.shutdown_worker())
 
         self.fig.autofmt_xdate()
         # Reserve right-hand strip for the legend and control panel instead of tight_layout.
         plt.subplots_adjust(**_AXES_RECT)
+        self._schedule_precompute()
         if not show:
             return
         plt.show()  # blocks until window is closed
+        self.shutdown_worker()
 
         # --- Write results back into tsys_matrix ---
         for i in range(self.n_ch):
@@ -272,24 +305,13 @@ class MultiChannelSelection:
     # Figure construction
     # ------------------------------------------------------------------ #
 
-    def _scan_break_layout(self) -> tuple[np.ndarray, np.ndarray]:
-        """Return (x as matplotlib date numbers with NaN at scan boundaries, insertion positions).
-
-        NaN breaks keep the smoothed preview line from connecting different scans.
-        """
-        break_pos = np.where(np.diff(self.block) != 0)[0] + 1
-        x_num = np.asarray(mdates.date2num(self._x_dt), dtype=float) if self._x_dt else np.array([])
-        return np.insert(x_num, break_pos, np.nan), break_pos
-
     def _build_lines(self) -> None:
-        """Create the data, flagged-original ("x") and smoothed-preview artists for every channel."""
-        # Three artists per channel:
+        """Create the data and flagged-original ("x") artists for every channel."""
+        # Two artists per channel:
         #   _lines[lbl]        – current (replacement) values, full opacity
-        #   _lines_orig[lbl]   – original values at flagged positions ("x"), alpha=0.2
-        #   _lines_smooth[lbl] – smoothed preview for the current method/window
+        #   _lines_orig[lbl]   – original values at flagged positions ("x"), alpha=_FLAGGED_ALPHA
         self._lines: dict[str, plt.Line2D] = {}
         self._lines_orig: dict[str, plt.Line2D] = {}
-        self._lines_smooth: dict[str, plt.Line2D] = {}
         self._visible: dict[str, bool] = {}
         for i, lbl in enumerate(self.labels):
             color = _color(i)
@@ -299,11 +321,8 @@ class MultiChannelSelection:
 
             flag_idx = np.where(self.flagged[i])[0]
             (line_orig,) = self.ax.plot([self._x_dt[j] for j in flag_idx], self.y_orig[i][flag_idx], "x",
-                                        color=color, ms=5, alpha=0.2, zorder=1)
+                                        color=color, ms=5, alpha=_FLAGGED_ALPHA, zorder=1)
             self._lines_orig[lbl] = line_orig
-
-            (line_smooth,) = self.ax.plot([], [], "-", color=color, lw=1.2, alpha=0.9, zorder=3)
-            self._lines_smooth[lbl] = line_smooth
 
     def _set_axis_limits(self) -> None:
         """Tight axis limits based on actual data, with 5% padding on each side (y from unflagged data only)."""
@@ -398,15 +417,15 @@ class MultiChannelSelection:
         hint("source: across same-source scans.")
 
         label("Smooth method")
-        self._radio_method = RadioButtons(widget_axes(0.095), SMOOTH_METHODS,
+        self._radio_method = RadioButtons(widget_axes(0.12), SMOOTH_METHODS,
                                           active=SMOOTH_METHODS.index(self.smooth_method))
         self._radio_method.on_clicked(self._on_method)
         hint("savgol/median: scan span only.")
 
-        label("Smooth window (0=scan)")
+        label("Smooth window")
         self._box_window = _ResizeSafeTextBox(widget_axes(0.04), "", initial=str(self.smooth_window))
         self._box_window.on_submit(self._on_window)
-        hint("Enter to apply; used by median.")
+        hint("clean: s (0=60); median: samples (0=scan).")
 
         label("Flag threshold (sigma)")
         self._box_sigma = _ResizeSafeTextBox(widget_axes(0.04), "", initial=f"{self.sigma:g}")
@@ -438,18 +457,16 @@ class MultiChannelSelection:
     # ------------------------------------------------------------------ #
 
     def _on_span(self, label: str) -> None:
-        """Radio callback: set the smoothing span (scan / source) and refresh the preview."""
+        """Radio callback: set the smoothing span (scan / source); applied only by Run smoothing."""
         self.smooth_span = label
         print(f"  Editor: smooth span = {label}")
-        self._update_smooth_lines()
-        self.fig.canvas.draw_idle()
+        self._schedule_precompute()
 
     def _on_method(self, label: str) -> None:
-        """Radio callback: set the smoothing method and refresh the preview."""
+        """Radio callback: set the smoothing method; applied only by Run smoothing."""
         self.smooth_method = label
         print(f"  Editor: smooth method = {label}")
-        self._update_smooth_lines()
-        self.fig.canvas.draw_idle()
+        self._schedule_precompute()
 
     def _on_window(self, text: str) -> None:
         """TextBox callback: validate and set the smoothing window, or show an error and restore the old value."""
@@ -465,7 +482,7 @@ class MultiChannelSelection:
         if value != self.smooth_window:
             self.smooth_window = value
             print(f"  Editor: smooth window = {value}")
-            self._update_smooth_lines()
+            self._schedule_precompute()
         self.fig.canvas.draw_idle()
 
     def _on_sigma(self, text: str) -> None:
@@ -512,48 +529,129 @@ class MultiChannelSelection:
         self._refresh_all_lines()
         self.fig.canvas.draw_idle()
 
-    def _compute_smoothed(self) -> np.ndarray:
-        """Smooth every channel with the current method/window/sigma using only the unflagged values.
+    def _smoothing_key(self) -> tuple:
+        """Identity of a smoothing result: the settings and the data version it was computed for."""
+        return (self.smooth_method, self.smooth_span, self.smooth_window, self.sigma, self._data_version)
 
-        Flagged values are passed as NaN so the smoother ignores them, then the fitted trend is evaluated at every
-        sample.  Where no fit is possible (e.g. a scan with every value flagged) the current value is kept.
-        Returns an array of shape (n_channels, n_times).  Must not be called with method "none".
-        """
+    def _smoothing_job(self) -> tuple[np.ndarray, np.ndarray, dict]:
+        """(current values, input with flagged/missing samples as NaN, keyword arguments of smooth_tsys_matrix)."""
         current = np.vstack(self.y)
-        unflagged = np.where(np.vstack(self.flagged), np.nan, current)
-        smoothed = smooth_tsys_matrix(unflagged, times=self.x, block=self.block, sigma=self.sigma,
-                                      window=self.smooth_window, method=self.smooth_method, span=self.smooth_span,
-                                      scan_sources=self.scan_sources, max_gap=self.max_gap)
-        return np.where(np.isfinite(smoothed), smoothed, current)
+        values = np.where(np.vstack(self.flagged) | self.missing, np.nan, current)
+        kwargs = dict(times=self.x, block=self.block, sigma=self.sigma, window=self.smooth_window,
+                      method=self.smooth_method, span=self.smooth_span, scan_sources=self.scan_sources,
+                      max_gap=self.max_gap)
+        return current, values, kwargs
 
-    def _run_smoothing(self) -> None:
-        """Button callback: replace the data with the smoothed trend of the current unflagged values. Undoable.
+    def _schedule_precompute(self) -> None:
+        """Start computing the smoothing for the current settings + data in the worker process.  Never blocks.
 
-        Flags are kept (the "x" markers stay); each click smooths the data as it is at that moment, so flagging more
-        points and clicking again smooths the new set.
+        No-op for method "none", without background mode, or if that exact job is already pending.  A queued
+        (not yet started) older job is cancelled; a running one finishes but its result no longer matches.
+        """
+        if not self._background or self.smooth_method == "none" or self.n_ch == 0 or len(self.x) == 0:
+            return
+        key = self._smoothing_key()
+        if self._pending is not None:
+            if self._pending[0] == key:
+                return
+            self._pending[1].cancel()
+        current, values, kwargs = self._smoothing_job()
+        try:
+            if self._executor is None:
+                # "spawn": a clean worker (no copy of the GUI state / event loop); one worker keeps jobs in order.
+                self._executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+            self._pending = (key, self._executor.submit(smooth_tsys_matrix, values, **kwargs), current)
+        except (BrokenProcessPool, RuntimeError, OSError) as err:
+            self._disable_background(err)
+
+    def _disable_background(self, err: BaseException) -> None:
+        """The worker process failed: stop using it; from now on Run smoothing computes in the window process."""
+        print(f"  Editor: background smoothing unavailable ({err!r}); Run smoothing will compute directly.")
+        self.shutdown_worker()
+        self._background = False
+
+    def shutdown_worker(self) -> None:
+        """Stop the poll timer and the background worker (pending jobs are cancelled).  Safe to call twice."""
+        if self._poll_timer is not None:
+            self._poll_timer.stop()
+            self._poll_timer = None
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+        self._pending = None
+        self._requested_key = None
+
+    def _apply_smoothed(self, smoothed: np.ndarray, current: np.ndarray) -> None:
+        """Replace the data with *smoothed* (input value where no estimate exists).  Undoable; flags are kept."""
+        self._push_undo()
+        smoothed = np.where(np.isfinite(smoothed), smoothed, current)
+        self.y = [smoothed[i].copy() for i in range(self.n_ch)]
+        self._status.set_text("")
+        print(f"  Editor: smoothing applied (span = {self.smooth_span}, method = {self.smooth_method}, "
+              f"window = {self.smooth_window}, sigma = {self.sigma:g})")
+        self._refresh_all_lines(keep_ylim=True)       # same axis limits: the change is easy to compare
+        self.fig.canvas.draw_idle()
+
+    def _run_smoothing(self, wait: bool = False) -> None:
+        """Button callback: replace the data with the smoothing of the current unflagged values.  Undoable.
+
+        Background mode: applied at once if the pre-computed result is ready, else when it arrives (polled with a
+        canvas timer, so the window stays responsive); *wait* = True blocks until then instead (tests).  Without
+        background mode the smoothing is computed synchronously.  Flags are kept (the "x" markers stay); each click
+        smooths the data as it is at that moment.
         """
         if self.smooth_method == "none":
             self._status.set_text('Smooth method is "none": nothing to run.')
             self.fig.canvas.draw_idle()
             return
-        self._push_undo()
-        smoothed = self._compute_smoothed()
-        self.y = [smoothed[i].copy() for i in range(self.n_ch)]
-        self._status.set_text("")
-        print(f"  Editor: smoothing applied (span = {self.smooth_span}, method = {self.smooth_method}, "
-              f"window = {self.smooth_window}, sigma = {self.sigma:g})")
-        self._refresh_all_lines()
-        self.fig.canvas.draw_idle()
-
-    def _update_smooth_lines(self) -> None:
-        """Recompute the smoothed preview for all channels with the current method/window."""
-        if self.smooth_method == "none" or self.n_ch == 0 or len(self.x) == 0:
-            for line in self._lines_smooth.values():
-                line.set_data([], [])
+        self._schedule_precompute()                 # may switch background off if the worker is broken
+        if not self._background:
+            current, values, kwargs = self._smoothing_job()
+            self._apply_smoothed(smooth_tsys_matrix(values, **kwargs), current)
             return
-        smoothed = self._compute_smoothed()
-        for i, lbl in enumerate(self.labels):
-            self._lines_smooth[lbl].set_data(self._x_num_breaks, np.insert(smoothed[i], self._break_pos, np.nan))
+        self._requested_key = self._smoothing_key()
+        if wait:
+            futures_wait([self._pending[1]])
+        if not self._apply_if_ready():
+            self._status.set_text("Smoothing... (applied when ready)")
+            self.fig.canvas.draw_idle()
+            if self._poll_timer is None:
+                self._poll_timer = self.fig.canvas.new_timer(interval=_POLL_MS)
+                self._poll_timer.add_callback(self._poll_requested)
+                self._poll_timer.start()
+
+    def _apply_if_ready(self) -> bool:
+        """Apply the pending result if Run requested it and it is done.  True when nothing is left to wait for."""
+        if self._requested_key is None:
+            return True
+        if self._pending is None or self._pending[0] != self._requested_key:
+            # Settings or data changed after Run was pressed: that request is obsolete.
+            self._requested_key = None
+            self._status.set_text("Settings or flags changed: press Run smoothing again.")
+            self.fig.canvas.draw_idle()
+            return True
+        key, future, current = self._pending
+        if not future.done():
+            return False
+        self._requested_key = None
+        if future.cancelled() or future.exception() is not None:
+            error = future.exception() if not future.cancelled() else None
+            if isinstance(error, BrokenProcessPool):
+                self._disable_background(error)
+                self._status.set_text("Background worker died: press Run smoothing again.")
+            else:
+                print(f"  Editor: smoothing failed: {error!r}")
+                self._status.set_text(f"Smoothing failed: {error!r}")
+            self.fig.canvas.draw_idle()
+            return True
+        self._apply_smoothed(future.result(), current)
+        return True
+
+    def _poll_requested(self) -> None:
+        """Timer callback: apply the requested smoothing once it is ready, then stop polling."""
+        if self._apply_if_ready() and self._poll_timer is not None:
+            self._poll_timer.stop()
+            self._poll_timer = None
 
     # ------------------------------------------------------------------ #
     # Event handlers
@@ -563,7 +661,6 @@ class MultiChannelSelection:
         self._visible[lbl] = visible
         self._lines[lbl].set_visible(visible)
         self._lines_orig[lbl].set_visible(visible)
-        self._lines_smooth[lbl].set_visible(visible)
         alpha = _ALPHA[visible]
         self._leg_handles[lbl].set_alpha(alpha)
         self._leg_texts[lbl].set_alpha(alpha)
@@ -620,15 +717,18 @@ class MultiChannelSelection:
         self._sel_extents = None
         self._rect.clear()
 
-    def _refresh_all_lines(self) -> None:
-        """Update all line artists (data, flagged "x", smoothed preview) from current y / flagged arrays."""
+    def _refresh_all_lines(self, keep_ylim: bool = False) -> None:
+        """Update the data and flagged "x" artists from current y / flagged arrays; the data changed, so start
+        pre-computing the smoothing of the new data.  The y axis is re-fitted unless *keep_ylim* (smoothing)."""
         for i, lbl in enumerate(self.labels):
             self._lines[lbl].set_ydata(self.y[i])
             flag_idx = np.where(self.flagged[i])[0]
             self._lines_orig[lbl].set_xdata([self._x_dt[j] for j in flag_idx])
             self._lines_orig[lbl].set_ydata(self.y_orig[i][flag_idx])
-        self._update_smooth_lines()
-        self._update_ylim()
+        if not keep_ylim:
+            self._update_ylim()
+        self._data_version += 1
+        self._schedule_precompute()
 
     def _on_key(self, event) -> None:
         """Handle keyboard shortcuts (ignored while typing in a panel text box).
